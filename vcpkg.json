@@ -1,0 +1,7 @@
+{
+  "dependencies": [
+    "opencv4",
+    "spdlog",
+    "ini-cpp"
+  ]
+}
