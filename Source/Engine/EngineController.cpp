@@ -84,9 +84,21 @@ std::future<std::expected<BestMoveResult, EngineError>> EngineController::FindBe
         return future;
     }
 
+    const std::uint64_t requestId = ++m_RequestGeneration;
+
     // Serializes concurrent callers: a second call blocks here until the in-flight
-    // search's bestmove line arrives and HandleBestMoveLine clears the flag below.
+    // search's bestmove line arrives and HandleBestMoveLine clears the flag below. If a
+    // search is already running, stop it immediately rather than waiting out its full
+    // movetime - this request already supersedes it (see m_RequestGeneration), so there's
+    // no reason to block the caller (GameSession calls this synchronously from the poll
+    // loop) for however long was left of the old search's time budget.
     std::unique_lock<std::mutex> searchLock(m_SearchMutex);
+    if (m_SearchInProgress)
+    {
+        searchLock.unlock();
+        m_Client->SendStop();
+        searchLock.lock();
+    }
     m_SearchCv.wait(searchLock, [this] { return !m_SearchInProgress; });
     m_SearchInProgress = true;
     searchLock.unlock();
@@ -94,6 +106,7 @@ std::future<std::expected<BestMoveResult, EngineError>> EngineController::FindBe
     {
         std::scoped_lock lock(m_PendingMutex);
         m_PendingBestMove = std::move(promise);
+        m_PendingRequestId = requestId;
     }
 
     m_Client->SendPosition(fen, moves);
@@ -157,9 +170,11 @@ void EngineController::HandleBestMoveLine(std::string_view line)
     auto result = UCIProtocol::ParseBestMoveLine(line);
 
     std::optional<std::promise<std::expected<BestMoveResult, EngineError>>> pending;
+    std::uint64_t pendingRequestId = 0;
     {
         std::scoped_lock lock(m_PendingMutex);
         pending = std::move(m_PendingBestMove);
+        pendingRequestId = m_PendingRequestId;
         m_PendingBestMove.reset();
     }
 
@@ -177,7 +192,12 @@ void EngineController::HandleBestMoveLine(std::string_view line)
     }
     m_SearchCv.notify_one();
 
-    if (result)
+    // A newer request may have already superseded this one (see m_RequestGeneration's
+    // comment in the header) - if so, this result is for a position that's no longer
+    // current, so it must not reach the UI even though it's a perfectly valid engine result.
+    const bool isStale = pendingRequestId != m_RequestGeneration.load();
+
+    if (result && !isStale)
     {
         BestMoveCallback callback;
         {

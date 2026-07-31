@@ -97,6 +97,18 @@ bool AppWindow::ShouldClose() const
     return m_Impl->Window && glfwWindowShouldClose(m_Impl->Window);
 }
 
+void AppWindow::Minimize()
+{
+    if (m_Impl->Window)
+        glfwIconifyWindow(m_Impl->Window);
+}
+
+void AppWindow::Restore()
+{
+    if (m_Impl->Window)
+        glfwRestoreWindow(m_Impl->Window);
+}
+
 void AppWindow::BeginFrame()
 {
     glfwPollEvents();

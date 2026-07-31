@@ -16,6 +16,11 @@ public:
 
     [[nodiscard]] bool ShouldClose() const;
 
+    // Iconifies/restores the window (e.g. to get it out of the way before a full-screen
+    // capture). Safe to call before Init() or after Shutdown() - no-ops in that case.
+    void Minimize();
+    void Restore();
+
     // Polls window/input events and starts a new ImGui frame. Call once per iteration
     // before drawing any panels.
     void BeginFrame();

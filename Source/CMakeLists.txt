@@ -25,6 +25,8 @@ set(VISION_SOURCES
     Vision/BoardCalibrator.cpp
     Vision/BoardSlicer.h
     Vision/BoardSlicer.cpp
+    Vision/CellBackground.h
+    Vision/CellBackground.cpp
     Vision/PieceTemplateLibrary.h
     Vision/PieceTemplateLibrary.cpp
     Vision/BoardStateExtractor.h
@@ -42,6 +44,8 @@ set(GAME_SOURCES
     Game/GameTracker.cpp
     Game/MoveDetector.h
     Game/MoveDetector.cpp
+    Game/GameSession.h
+    Game/GameSession.cpp
 )
 
 # Library form of the app logic, so both ChessAssist and ChessAssistTests (see ../Tests)
@@ -70,6 +74,9 @@ set(UI_SOURCES
     UI/BoardViewPanel.cpp
     UI/CalibrationPanel.h
     UI/CalibrationPanel.cpp
+    UI/LogPanel.h
+    UI/LogPanel.cpp
+    UI/ImGuiLogSink.h
 )
 
 # UI sources are linked only into the ChessAssist executable, not ChessAssistCore - keeps
@@ -80,3 +87,11 @@ target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS})
 target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw OpenGL::GL)
 
 add_dependencies(ChessAssist build_stockfish)
+
+# Reference piece-recognition assets (see PieceTemplateLibrary::BootstrapFromReferenceAssets),
+# looked up next to the running executable via ExecutablePathUtil::GetAssetsDirectory().
+add_custom_command(TARGET ChessAssist POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/Assets"
+        "$<TARGET_FILE_DIR:ChessAssist>/Assets"
+)

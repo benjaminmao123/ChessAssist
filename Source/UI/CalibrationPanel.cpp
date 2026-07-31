@@ -24,7 +24,7 @@ void CalibrationPanel::Draw()
         return;
 
     ImGui::Begin("Calibrate Board");
-    ImGui::TextWrapped("Click the board's top-left corner, then its bottom-right corner.");
+    ImGui::TextWrapped("Click the board's top-left corner, then its bottom-right corner. The board must currently show the standard starting position.");
 
     if (m_Texture.IsValid())
     {

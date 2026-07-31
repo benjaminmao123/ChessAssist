@@ -22,6 +22,11 @@ std::span<const std::string> GameTracker::GetMoves() const
     return m_Moves;
 }
 
+PieceColor GameTracker::GetSideToMove() const
+{
+    return (m_Moves.size() % 2 == 0) ? PieceColor::White : PieceColor::Black;
+}
+
 const BoardState& GameTracker::GetLastKnownBoardState() const
 {
     return m_LastKnownBoardState;

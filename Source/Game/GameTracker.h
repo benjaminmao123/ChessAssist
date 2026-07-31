@@ -18,6 +18,10 @@ public:
     [[nodiscard]] const std::string& GetBaseFen() const;
     [[nodiscard]] std::span<const std::string> GetMoves() const;
 
+    // Derived from the move count: base FEN is always a standard start (White to move
+    // first), so an even move count means it's White's turn again.
+    [[nodiscard]] PieceColor GetSideToMove() const;
+
     [[nodiscard]] const BoardState& GetLastKnownBoardState() const;
     void SetLastKnownBoardState(const BoardState& state);
 

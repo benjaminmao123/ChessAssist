@@ -15,7 +15,8 @@ std::filesystem::path GetCurrentExecutablePath()
 {
     std::vector<wchar_t> buffer(MAX_PATH);
 
-    for (;;) {
+    for (;;)
+    {
         const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
 
         if (length == 0)
@@ -41,5 +42,15 @@ constexpr const char* kStockfishExeName = "stockfish";
 std::filesystem::path GetDefaultStockfishPath()
 {
     return GetCurrentExecutablePath().parent_path() / kStockfishExeName;
+}
+
+std::filesystem::path GetAssetsDirectory()
+{
+    return GetCurrentExecutablePath().parent_path() / "Assets";
+}
+
+std::filesystem::path GetLogsDirectory()
+{
+    return GetCurrentExecutablePath().parent_path() / "Logs";
 }
 }  // namespace ExecutablePathUtil
