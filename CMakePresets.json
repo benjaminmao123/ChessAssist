@@ -2,34 +2,64 @@
     "version": 8,
     "configurePresets": [
         {
-            "name": "linux-clang-debug",
+            "name": "linux-clang-base",
+            "hidden": true,
             "generator": "Ninja",
-            "displayName": "linux-clang-debug",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "CMAKE_C_COMPILER": "/usr/bin/clang-22",
                 "CMAKE_CXX_COMPILER": "/usr/bin/clang++-22",
-                "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "linux-clang-debug",
+            "inherits": "linux-clang-base",
+            "displayName": "Linux Clang Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
             "name": "linux-clang-release",
+            "inherits": "linux-clang-base",
+            "displayName": "Linux Clang Release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "windows-clang-base",
+            "hidden": true,
             "generator": "Ninja",
-            "displayName": "linux-clang-release",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "cacheVariables": {
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "CMAKE_C_COMPILER": "/usr/bin/clang-22",
-                "CMAKE_CXX_COMPILER": "/usr/bin/clang++-22",
-                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "C:/Program Files/LLVM/bin/clang.exe",
+                "CMAKE_CXX_COMPILER": "C:/Program Files/LLVM/bin/clang++.exe",
                 "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
             }
         },
         {
+            "name": "windows-clang-debug",
+            "inherits": "windows-clang-base",
+            "displayName": "Windows Clang Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "windows-clang-release",
+            "inherits": "windows-clang-base",
+            "displayName": "Windows Clang Release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "windows-msvc",
-            "displayName": "windows msvc x86_x64",
+            "displayName": "Windows MSVC",
             "description": "Using compilers for Visual Studio 17 2022 (x86_x64 architecture)",
             "generator": "Visual Studio 17 2022",
             "toolset": "host=x86",
@@ -53,6 +83,22 @@
             "name": "windows-msvc-release",
             "configurePreset": "windows-msvc",
             "configuration": "Release"
+        },
+        {
+            "name": "windows-clang-debug",
+            "configurePreset": "windows-clang-debug"
+        },
+        {
+            "name": "windows-clang-release",
+            "configurePreset": "windows-clang-release"
+        },
+        {
+            "name": "linux-clang-debug",
+            "configurePreset": "linux-clang-debug"
+        },
+        {
+            "name": "linux-clang-release",
+            "configurePreset": "linux-clang-release"
         }
     ]
 }

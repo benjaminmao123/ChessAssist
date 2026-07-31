@@ -4,6 +4,7 @@
   "dependencies": [
     "opencv",
     "spdlog",
-    "ini-cpp"
+    "ini-cpp",
+    "gtest"
   ]
 }

@@ -10,7 +10,15 @@ set(SF_ARCH "x86-64-avx2")
 if (WIN32)
     set(MSYS_BASH "C:/msys64/usr/bin/bash.exe")
     set(INTERNAL_EXE "${SF_VENDOR_DIR}/stockfish.exe")
-    set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/$<CONFIG>/stockfish.exe")
+
+    # $<CONFIG> only matches ChessAssist's own output directory for multi-config
+    # generators (e.g. Visual Studio) - single-config Windows generators (e.g. Ninja) put
+    # ChessAssist.exe directly under Source/ with no per-config subfolder.
+    if (CMAKE_CONFIGURATION_TYPES)
+        set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/$<CONFIG>/stockfish.exe")
+    else()
+        set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/stockfish.exe")
+    endif()
 
     # 2. Command to run the official Makefile (Outputs stockfish.exe)
     add_custom_command(
