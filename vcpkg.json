@@ -5,6 +5,15 @@
     "opencv",
     "spdlog",
     "ini-cpp",
-    "gtest"
+    "gtest",
+    "glfw3",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "opengl3-binding",
+        "docking-experimental"
+      ]
+    }
   ]
 }

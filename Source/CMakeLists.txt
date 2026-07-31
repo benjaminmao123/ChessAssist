@@ -59,9 +59,24 @@ else()
     target_link_libraries(ChessAssistCore PUBLIC ${X11_LIBRARIES})
 endif()
 
-add_executable(ChessAssist main.cpp)
+set(UI_SOURCES
+    UI/AppWindow.h
+    UI/AppWindow.cpp
+    UI/EngineInfoPanel.h
+    UI/EngineInfoPanel.cpp
+    UI/GLTexture.h
+    UI/GLTexture.cpp
+    UI/BoardViewPanel.h
+    UI/BoardViewPanel.cpp
+    UI/CalibrationPanel.h
+    UI/CalibrationPanel.cpp
+)
+
+# UI sources are linked only into the ChessAssist executable, not ChessAssistCore - keeps
+# GLFW/OpenGL out of ChessAssistTests, which has no window/GL context to run against.
+add_executable(ChessAssist main.cpp ${UI_SOURCES})
 
 target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS})
-target_link_libraries(ChessAssist PRIVATE ChessAssistCore)
+target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw OpenGL::GL)
 
 add_dependencies(ChessAssist build_stockfish)

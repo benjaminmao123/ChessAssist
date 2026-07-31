@@ -1,65 +1,11 @@
 #include "BoardCalibrator.h"
 
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
-#include <vector>
-
-namespace
-{
-struct ClickState
-{
-    std::vector<cv::Point> Points;
-};
-
-void OnMouse(int event, int x, int y, int, void* userData)
-{
-    if (event != cv::EVENT_LBUTTONDOWN)
-        return;
-
-    auto* state = static_cast<ClickState*>(userData);
-    state->Points.emplace_back(x, y);
-}
-}  // namespace
 
 namespace BoardCalibrator
 {
-std::optional<BoardRegion> CalibrateInteractive(const cv::Mat& frame, BoardOrientation orientation)
-{
-    const std::string windowName = "ChessAssist Calibration - click top-left then bottom-right corner of the board, Esc to cancel";
-
-    ClickState state;
-
-    cv::namedWindow(windowName, cv::WINDOW_AUTOSIZE);
-    cv::setMouseCallback(windowName, OnMouse, &state);
-
-    std::optional<BoardRegion> result;
-
-    while (true)
-    {
-        cv::Mat display = frame.clone();
-        for (const cv::Point& point : state.Points)
-            cv::circle(display, point, 5, cv::Scalar(0, 0, 255), cv::FILLED);
-
-        cv::imshow(windowName, display);
-        const int key = cv::waitKey(30);
-
-        if (key == 27)  // Esc
-            break;
-
-        if (state.Points.size() >= 2)
-        {
-            const cv::Rect rect = cv::boundingRect(state.Points);
-            result = BoardRegion{rect, orientation};
-            break;
-        }
-    }
-
-    cv::destroyWindow(windowName);
-    return result;
-}
-
 bool LooksLikeBoard(const cv::Mat& frame, const cv::Rect& region)
 {
     const cv::Rect bounds = region & cv::Rect(0, 0, frame.cols, frame.rows);
