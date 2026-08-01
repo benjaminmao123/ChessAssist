@@ -1,14 +1,11 @@
 find_package(GTest CONFIG REQUIRED)
 
 add_executable(ChessAssistTests
-    SyntheticBoard.h
-    SyntheticBoard.cpp
     UCIProtocolTests.cpp
-    MoveDetectorTests.cpp
-    VisionPipelineTests.cpp
     EngineControllerTests.cpp
+    ChessRulesTests.cpp
     GameSessionTests.cpp
-    ReferenceAssetsTests.cpp
+    BrowserPipelineTests.cpp
 )
 
 target_link_libraries(ChessAssistTests PRIVATE ChessAssistCore GTest::gtest_main GTest::gtest)
@@ -24,11 +21,11 @@ add_custom_command(TARGET ChessAssistTests POST_BUILD
         "$<TARGET_FILE_DIR:ChessAssistTests>/stockfish${CMAKE_EXECUTABLE_SUFFIX}"
 )
 
-# Reference piece-recognition assets, needed by the reference-asset bootstrap test.
+# Local HTML fixtures for BrowserPipelineTests.
 add_custom_command(TARGET ChessAssistTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/Assets"
-        "$<TARGET_FILE_DIR:ChessAssistTests>/Assets"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Fixtures"
+        "$<TARGET_FILE_DIR:ChessAssistTests>/Fixtures"
 )
 
 include(GoogleTest)

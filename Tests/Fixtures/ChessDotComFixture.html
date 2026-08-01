@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>ChessAssist test fixture - chess.com style</title></head>
+<body>
+<!-- Mirrors real chess.com move-list markup (captured from a live game via DevTools): each
+     non-pawn move's piece letter is an icon element with an empty-text data-figurine
+     attribute, immediately followed by a plain-text destination-only node - the letter never
+     appears as text at all. See ChessSiteAdapter.cpp's figurineLetterFor() for the fix this
+     fixture exercises. -->
+<vertical-move-list>
+  <div class="main-line-row move-list-row" data-whole-move-number="1">
+    <div data-node="0-0" class="node white-move main-line-ply"><span class="node-highlight-content">e4 </span></div>
+    <div data-node="0-1" class="node black-move main-line-ply"><span class="node-highlight-content">e5 </span></div>
+  </div>
+  <div class="main-line-row move-list-row" data-whole-move-number="2">
+    <div data-node="0-2" class="node white-move main-line-ply"><span class="node-highlight-content"><span class="icon-font-chess knight-white " data-figurine="N"></span> f3 </span></div>
+    <div data-node="0-3" class="node black-move main-line-ply"><span class="node-highlight-content"><span class="icon-font-chess knight-black " data-figurine="N"></span> c6 </span></div>
+  </div>
+</vertical-move-list>
+</body>
+</html>

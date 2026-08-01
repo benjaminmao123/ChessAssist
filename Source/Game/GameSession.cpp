@@ -1,53 +1,30 @@
 #include "GameSession.h"
 
-#include "MoveDetector.h"
+#include "MoveListDiff.h"
 
-#include "../Engine/ExecutablePathUtil.h"
-#include "../Vision/BoardSlicer.h"
-#include "../Vision/BoardStateExtractor.h"
-
-#include <spdlog/spdlog.h>
-
-#include <opencv2/imgcodecs.hpp>
-
-#include <array>
-#include <filesystem>
-#include <vector>
+#include "../Engine/EngineController.h"
+#include "../Logging/Log.h"
 
 namespace
 {
-// GameSession always receives frames already cropped to the board region (via
-// ScreenCapture::CaptureRegion(m_Region.Rect)), so the frame's own (0,0) is the board's
-// top-left on screen - the *absolute* region rect must never be handed to SliceCells
-// against such a frame, or it double-crops against the wrong coordinate space and slices
-// garbage cells. Only orientation from m_Region still applies.
-BoardRegion LocalRegion(const cv::Mat& frame, const BoardRegion& region)
+// Our own app-managed Chrome instance's remote-debugging port - distinct from Chrome's
+// common default (9222) so we never collide with some other, unrelated debug session the
+// user might already have running.
+constexpr std::uint16_t kCdpPort = 9333;
+
+template <typename StringRange>
+std::string JoinStrings(const StringRange& values, std::string_view separator = ", ")
 {
-    return BoardRegion{cv::Rect(0, 0, frame.cols, frame.rows), region.Orientation};
-}
-
-std::string DescribePiece(const std::optional<Piece>& piece)
-{
-    if (!piece)
-        return "empty";
-
-    static constexpr const char* kTypeNames[] = { "pawn", "knight", "bishop", "rook", "queen", "king" };
-    return std::string(piece->Color == PieceColor::White ? "white " : "black ") + kTypeNames[static_cast<int>(piece->Type)];
-}
-
-// Temporary diagnostic aid: dumps the frame and the individual cell crops for every
-// changed square next to the running executable (fixed filenames, overwritten each poll)
-// so a misdetection can be inspected after the fact without needing to reproduce it live.
-void SaveDebugCapture(const cv::Mat& frame, const std::array<cv::Mat, 64>& cells, const std::vector<int>& changedSquares)
-{
-    const std::filesystem::path debugDir = ExecutablePathUtil::GetCurrentExecutablePath().parent_path() / "DebugCaptures";
-    std::error_code             ec;
-    std::filesystem::create_directories(debugDir, ec);
-
-    cv::imwrite((debugDir / "frame.png").string(), frame);
-
-    for (int index : changedSquares)
-        cv::imwrite((debugDir / (SquareToAlgebraic(index) + ".png")).string(), cells[index]);
+    std::string joined;
+    bool first = true;
+    for (const auto& value : values)
+    {
+        if (!first)
+            joined += separator;
+        joined += value;
+        first = false;
+    }
+    return joined;
 }
 }  // namespace
 
@@ -56,45 +33,61 @@ GameSession::GameSession(EngineController& controller)
 {
 }
 
-bool GameSession::LoadPieceTemplates(const std::filesystem::path& assetsDirectory)
+std::expected<void, BrowserError> GameSession::LaunchBrowser(const std::filesystem::path& profileDir)
 {
-    return m_TemplateLibrary.BootstrapFromReferenceAssets(assetsDirectory);
+    if (m_Launcher.IsRunning())
+        return {};
+
+    return m_Launcher.Launch(kCdpPort, profileDir, "about:blank");
 }
 
-bool GameSession::AreTemplatesLoaded() const
+bool GameSession::IsBrowserRunning() const
 {
-    return m_TemplateLibrary.IsBootstrapped();
+    return m_Launcher.IsRunning();
 }
 
-bool GameSession::StartNewGame(const cv::Mat& frame, const BoardRegion& region)
+bool GameSession::ConnectToSite(ChessSite site)
 {
-    if (!m_TemplateLibrary.IsBootstrapped())
+    if (!m_Launcher.IsRunning())
     {
-        m_Active = false;
+        LOG_ERROR("ConnectToSite: browser isn't running - call LaunchBrowser first");
         return false;
     }
 
-    m_Region = region;
+    const std::optional<std::string> webSocketUrl = CdpClient::FindPageWebSocketUrl(kCdpPort, ChessSiteAdapter::UrlMatchSubstring(site));
+    if (!webSocketUrl)
+    {
+        LOG_ERROR("ConnectToSite: no open tab found matching '{}' - navigate to the site in the app browser window first", ChessSiteAdapter::UrlMatchSubstring(site));
+        return false;
+    }
 
-    const std::array<cv::Mat, 64> cells = BoardSlicer::SliceCells(frame, LocalRegion(frame, m_Region));
+    m_CdpClient.Disconnect();
 
+    if (const std::expected<void, CdpError> connected = m_CdpClient.Connect(*webSocketUrl); !connected)
+    {
+        LOG_ERROR("ConnectToSite: {}", connected.error().Message);
+        return false;
+    }
+
+    m_Site = site;
+    m_Rules.Reset();
     m_Tracker.Reset();
-    m_Tracker.SetLastKnownBoardState(BoardStateExtractor::Extract(cells, m_TemplateLibrary));
-
-    m_Active = true;
-    RequestEngineMove();
+    m_Connected = true;
+    m_Desynced = false;
 
     return true;
 }
 
-bool GameSession::IsActive() const
+bool GameSession::IsConnected() const
 {
-    return m_Active;
+    return m_Connected;
 }
 
-const BoardRegion& GameSession::GetRegion() const
+void GameSession::Disconnect()
 {
-    return m_Region;
+    m_CdpClient.Disconnect();
+    m_Connected = false;
+    m_Desynced = false;
 }
 
 const GameTracker& GameSession::GetTracker() const
@@ -102,56 +95,93 @@ const GameTracker& GameSession::GetTracker() const
     return m_Tracker;
 }
 
-std::optional<std::string> GameSession::Poll(const cv::Mat& frame)
+const BoardState& GameSession::GetTrackedBoard() const
 {
-    if (!m_Active)
-        return std::nullopt;
+    return m_Rules.GetBoard();
+}
 
-    const std::array<cv::Mat, 64> cells        = BoardSlicer::SliceCells(frame, LocalRegion(frame, m_Region));
-    const BoardState              currentState = BoardStateExtractor::Extract(cells, m_TemplateLibrary);
+std::vector<std::string> GameSession::Poll()
+{
+    std::vector<std::string> newMoves;
 
-    const BoardState& lastState = m_Tracker.GetLastKnownBoardState();
+    if (!m_Connected)
+        return newMoves;
 
-    std::vector<int> changedSquares;
-    for (int i = 0; i < 64; ++i)
+    const std::expected<std::string, CdpError> jsResult = m_CdpClient.EvaluateJs(ChessSiteAdapter::ExtractionScript(m_Site));
+    if (!jsResult)
     {
-        if (lastState[i] != currentState[i])
-            changedSquares.push_back(i);
+        // Transient - a brief navigation, a page not fully loaded yet, a slow round trip.
+        // Don't tear down the connection over one failed poll tick; just retry next tick.
+        LOG_WARN("Poll: CDP evaluate failed: {}", jsResult.error().Message);
+        return newMoves;
     }
 
-    const std::optional<std::string> move = MoveDetector::DetectMove(lastState, currentState, m_Tracker.GetSideToMove());
+    const std::optional<SiteGameState> state = ChessSiteAdapter::ParseExtractionResult(*jsResult);
+    if (!state)
+        return newMoves;  // no game currently open on the page - nothing to do yet
 
-    if (!move)
+    const MoveListDiff diff = ComputeMoveListDiff(state->SanMoves.size(), m_Tracker.GetMoves().size());
+
+    if (diff.Kind != MoveListDiffKind::NoChange)
+        LOG_INFO("Poll: read {} move(s) from the page: [{}]", state->SanMoves.size(), JoinStrings(state->SanMoves));
+
+    switch (diff.Kind)
     {
-        // Diagnostic only: a real move should show up as exactly a 2/3/4-square change that
-        // MoveDetector recognizes. Logging every other case (0 changes when one was expected,
-        // or an unrecognized change shape) makes it possible to tell live-capture recognition
-        // problems apart from move-detection logic problems without needing to reproduce it.
-        if (!changedSquares.empty())
+    case MoveListDiffKind::NoChange:
+        return newMoves;
+
+    case MoveListDiffKind::AmbiguousShrink:
+        // Could be a real reset, could be a flaky/mid-render DOM read. Don't silently
+        // discard tracked state (and any in-flight engine analysis) on a guess - require the
+        // user to explicitly reconnect.
+        LOG_WARN("Poll: move list shrank unexpectedly ({} -> {} moves) - tracking desynced, reconnect to resync", m_Tracker.GetMoves().size(), state->SanMoves.size());
+        m_Desynced = true;
+        return newMoves;
+
+    case MoveListDiffKind::ResetToFreshGame:
+        LOG_INFO("Poll: move list reset to {} move(s) - starting fresh game", state->SanMoves.size());
+        m_Rules.Reset();
+        m_Tracker.Reset();
+        m_Desynced = false;
+        break;
+
+    case MoveListDiffKind::Grew:
+        break;
+    }
+
+    const std::size_t startIndex = (diff.Kind == MoveListDiffKind::ResetToFreshGame) ? 0 : diff.StartIndex;
+    for (std::size_t i = startIndex; i < state->SanMoves.size(); ++i)
+    {
+        const std::optional<std::string> uci = m_Rules.ApplySanMove(state->SanMoves[i]);
+        if (!uci)
         {
-            spdlog::warn("Poll: {} square(s) changed but no move recognized (side to move: {})", changedSquares.size(), m_Tracker.GetSideToMove() == PieceColor::White ? "White" : "Black");
-
-            for (int index : changedSquares)
-                spdlog::warn("  {}: {} -> {}", SquareToAlgebraic(index), DescribePiece(lastState[index]), DescribePiece(currentState[index]));
-
-            SaveDebugCapture(frame, cells, changedSquares);
-            spdlog::warn("Saved debug capture to DebugCaptures/ next to the executable");
+            LOG_ERROR("Poll: failed to parse SAN move '{}' at index {} - tracking desynced, reconnect to resync", state->SanMoves[i], i);
+            m_Desynced = true;
+            break;
         }
 
-        return std::nullopt;
+        LOG_DEBUG("Poll: applied '{}' -> {}", state->SanMoves[i], *uci);
+        m_Tracker.RecordMove(*uci);
+        newMoves.push_back(*uci);
     }
 
-    m_Tracker.RecordMove(*move);
-    m_Tracker.SetLastKnownBoardState(currentState);
+    if (!newMoves.empty())
+        RequestEngineMove();
 
-    RequestEngineMove();
+    return newMoves;
+}
 
-    return move;
+bool GameSession::HasDesynced() const
+{
+    return m_Desynced;
 }
 
 void GameSession::RequestEngineMove()
 {
     SearchLimits limits;
     limits.MoveTimeMs = 1500;
+
+    LOG_DEBUG("RequestEngineMove: side to move after [{}]", JoinStrings(m_Tracker.GetMoves()));
+
     (void)m_Controller->FindBestMoveAsync(m_Tracker.GetBaseFen(), limits, m_Tracker.GetMoves());
 }

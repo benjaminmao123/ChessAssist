@@ -1,51 +1,66 @@
 #pragma once
 
-#include "../Engine/EngineController.h"
-#include "../Vision/PieceTemplateLibrary.h"
-#include "../Vision/VisionTypes.h"
 #include "GameTracker.h"
 
-#include <opencv2/core.hpp>
+#include "../Browser/BrowserLauncher.h"
+#include "../Browser/CdpClient.h"
+#include "../Browser/ChessSiteAdapter.h"
+#include "../Chess/ChessRules.h"
 
 #include <filesystem>
-#include <optional>
 #include <string>
+#include <vector>
 
-// Orchestrates the live capture -> recognize -> detect-move -> engine pipeline for one
-// game: owns the bootstrapped PieceTemplateLibrary and GameTracker for the game currently
-// being watched, and drives EngineController (owned by the caller) whenever a new move is
-// recognized.
+class EngineController;
+
+// Orchestrates a live game: launches and owns a dedicated Chrome instance (BrowserLauncher),
+// polls the chess site's move-list DOM through it (CdpClient + ChessSiteAdapter), converts
+// newly-seen SAN moves to UCI (ChessRules), and feeds them into the unchanged
+// GameTracker/EngineController pipeline.
 class GameSession
 {
 public:
     explicit GameSession(EngineController& controller);
 
-    // Loads piece-recognition templates from a reference asset folder (see
-    // PieceTemplateLibrary::BootstrapFromReferenceAssets). One-time setup, independent of
-    // any particular game - call once before the first StartNewGame().
-    [[nodiscard]] bool LoadPieceTemplates(const std::filesystem::path& assetsDirectory);
+    // One-time per app session: launches (or no-ops if already running) the app-managed
+    // Chrome instance with CDP remote debugging enabled.
+    [[nodiscard]] std::expected<void, BrowserError> LaunchBrowser(const std::filesystem::path& profileDir);
+    [[nodiscard]] bool IsBrowserRunning() const;
 
-    [[nodiscard]] bool AreTemplatesLoaded() const;
+    // Finds site's already-open tab in the app-managed Chrome, connects, and resets
+    // tracking - the next Poll() baselines from whatever moves already exist in the site's
+    // move list (0 for a fresh game, N for joining mid-game, handled automatically by Poll's
+    // diff logic - no special-casing needed here).
+    [[nodiscard]] bool ConnectToSite(ChessSite site);
+    [[nodiscard]] bool IsConnected() const;
 
-    // Marks region as the board being watched and takes frame as the move-detection
-    // baseline, whatever position it currently shows. Requires LoadPieceTemplates() to have
-    // already succeeded. Resets any previously tracked game.
-    [[nodiscard]] bool StartNewGame(const cv::Mat& frame, const BoardRegion& region);
+    // Ends the current session - closes the CDP connection and clears tracked state. Safe to
+    // call even if not connected.
+    void Disconnect();
 
-    [[nodiscard]] bool IsActive() const;
-    [[nodiscard]] const BoardRegion& GetRegion() const;
     [[nodiscard]] const GameTracker& GetTracker() const;
+    [[nodiscard]] const BoardState& GetTrackedBoard() const;
 
-    // Call periodically with a freshly captured frame covering GetRegion(). Returns the
-    // detected move (UCI notation) if one was found and recorded, else nullopt.
-    std::optional<std::string> Poll(const cv::Mat& frame);
+    // Re-runs the site's extraction script and applies any moves new since the last call.
+    // Returns them, in order, as UCI. Requests a fresh engine move once at the end if
+    // anything was applied - never more than once per call, regardless of how many moves
+    // were newly discovered.
+    [[nodiscard]] std::vector<std::string> Poll();
+
+    // True once Poll() found the site's move list shrink in a way that isn't a clean
+    // new-game reset, or a SAN move failed to parse - tracking can't be trusted until
+    // ConnectToSite() is called again.
+    [[nodiscard]] bool HasDesynced() const;
 
 private:
     void RequestEngineMove();
 
     EngineController* m_Controller = nullptr;
-    PieceTemplateLibrary m_TemplateLibrary;
+    BrowserLauncher m_Launcher;
+    CdpClient m_CdpClient;
+    ChessSite m_Site = ChessSite::ChessDotCom;
+    ChessRules m_Rules;
     GameTracker m_Tracker;
-    BoardRegion m_Region;
-    bool m_Active = false;
+    bool m_Connected = false;
+    bool m_Desynced = false;
 };

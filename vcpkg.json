@@ -2,11 +2,15 @@
   "name": "chess-assist",
   "version-string": "0.1.0",
   "dependencies": [
-    "opencv",
     "spdlog",
     "ini-cpp",
     "gtest",
     "glfw3",
+    {
+      "name": "ixwebsocket",
+      "default-features": false
+    },
+    "nlohmann-json",
     {
       "name": "imgui",
       "features": [

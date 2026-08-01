@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Vision/VisionTypes.h"
+#include "../Chess/ChessTypes.h"
 
 #include <span>
 #include <string>

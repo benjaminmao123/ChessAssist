@@ -1,5 +1,5 @@
 #include "Engine/EngineController.h"
-#include "Vision/VisionTypes.h"
+#include "Chess/ChessTypes.h"
 
 #include <gtest/gtest.h>
 

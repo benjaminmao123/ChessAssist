@@ -89,26 +89,26 @@ void LogPanel::Draw()
     }
     else
     {
-        ImGui::BeginChild("LogScrollRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("LogScrollRegion", ImVec2(0, 0), false);
 
-        ImGuiListClipper clipper;
-        clipper.Begin(m_LineOffsets.Size);
-        while (clipper.Step())
+        // Word-wrapped lines have variable height, which rules out ImGuiListClipper's
+        // fixed-row-height fast path - so this walks every line each frame rather than just
+        // the visible slice. Acceptable for an in-app diagnostic log at this volume; revisit
+        // with a height-aware clipper (ImGuiListClipper::IncludeItemByIndex) if that changes.
+        ImGui::PushTextWrapPos(0.0f);
+        for (int lineIndex = 0; lineIndex < m_LineOffsets.Size; ++lineIndex)
         {
-            for (int lineIndex = clipper.DisplayStart; lineIndex < clipper.DisplayEnd; ++lineIndex)
-            {
-                const char* lineStart = bufStart + m_LineOffsets[lineIndex];
-                const char* lineEnd = (lineIndex + 1 < m_LineOffsets.Size) ? (bufStart + m_LineOffsets[lineIndex + 1] - 1) : (bufEnd - 1);
+            const char* lineStart = bufStart + m_LineOffsets[lineIndex];
+            const char* lineEnd = (lineIndex + 1 < m_LineOffsets.Size) ? (bufStart + m_LineOffsets[lineIndex + 1] - 1) : (bufEnd - 1);
 
-                if (m_Filter.IsActive() && !m_Filter.PassFilter(lineStart, lineEnd))
-                    continue;
+            if (m_Filter.IsActive() && !m_Filter.PassFilter(lineStart, lineEnd))
+                continue;
 
-                ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(static_cast<spdlog::level::level_enum>(m_LineLevels[lineIndex])));
-                ImGui::TextUnformatted(lineStart, lineEnd);
-                ImGui::PopStyleColor();
-            }
+            ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(static_cast<spdlog::level::level_enum>(m_LineLevels[lineIndex])));
+            ImGui::TextUnformatted(lineStart, lineEnd);
+            ImGui::PopStyleColor();
         }
-        clipper.End();
+        ImGui::PopTextWrapPos();
 
         if (m_AutoScroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
             ImGui::SetScrollHereY(1.0f);

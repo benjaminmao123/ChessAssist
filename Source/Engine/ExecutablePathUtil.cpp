@@ -53,4 +53,9 @@ std::filesystem::path GetLogsDirectory()
 {
     return GetCurrentExecutablePath().parent_path() / "Logs";
 }
+
+std::filesystem::path GetBrowserProfileDirectory()
+{
+    return GetCurrentExecutablePath().parent_path() / "BrowserProfile";
+}
 }  // namespace ExecutablePathUtil
