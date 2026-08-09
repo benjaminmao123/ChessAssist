@@ -61,6 +61,8 @@ target_link_libraries(ChessAssistCore PUBLIC spdlog::spdlog Threads::Threads ixw
 set(UI_SOURCES
     UI/AppWindow.h
     UI/AppWindow.cpp
+    UI/ControlsPanel.h
+    UI/ControlsPanel.cpp
     UI/EngineInfoPanel.h
     UI/EngineInfoPanel.cpp
     UI/BoardStatePanel.h
@@ -68,13 +70,22 @@ set(UI_SOURCES
     UI/LogPanel.h
     UI/LogPanel.cpp
     UI/ImGuiLogSink.h
+    UI/StbImageImpl.cpp
 )
 
 # UI sources are linked only into the ChessAssist executable, not ChessAssistCore - keeps
 # GLFW/OpenGL out of ChessAssistTests, which has no window/GL context to run against.
-add_executable(ChessAssist main.cpp ${UI_SOURCES})
+add_executable(ChessAssist main.cpp App.h App.cpp ${UI_SOURCES})
 
-target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS})
+target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS} ${Stb_INCLUDE_DIR})
 target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw OpenGL::GL)
 
 add_dependencies(ChessAssist build_stockfish)
+
+# ExecutablePathUtil::GetAssetsDirectory() resolves to <exe-dir>/Assets at runtime (e.g. for
+# AppWindow's bundled font) - keep that directory in sync with the source Assets/ tree on
+# every build rather than requiring a separate manual copy step.
+add_custom_command(TARGET ChessAssist POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/Assets" "$<TARGET_FILE_DIR:ChessAssist>/Assets"
+    COMMENT "Copying Assets to output directory..."
+)

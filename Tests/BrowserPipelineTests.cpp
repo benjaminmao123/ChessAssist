@@ -111,3 +111,21 @@ TEST(BrowserPipelineTest, ExtractsLichessStyleFixtureWithObfuscatedTags)
     const std::vector<std::string> expected = {"e4", "e5", "Nf3", "Nc6"};
     EXPECT_EQ(state->SanMoves, expected);
 }
+
+TEST(BrowserPipelineTest, DetectsFreshGameWithNoMovesYetOnChessDotCom)
+{
+    // Regression coverage: a board with zero moves played must come back as a real (empty)
+    // move list, not null - the move-list heuristic alone can't tell "zero moves" apart from
+    // "no game open" (see ChessSiteAdapter.cpp's isGameOpen()). Returning null here was the
+    // bug that left GameSession's Poll() unable to ever request an opening engine move.
+    const std::optional<SiteGameState> state = ExtractFromFixture("ChessDotComFreshGameFixture.html", ChessSite::ChessDotCom, 9336);
+    ASSERT_TRUE(state.has_value());
+    EXPECT_TRUE(state->SanMoves.empty());
+}
+
+TEST(BrowserPipelineTest, DetectsFreshGameWithNoMovesYetOnLichess)
+{
+    const std::optional<SiteGameState> state = ExtractFromFixture("LichessFreshGameFixture.html", ChessSite::Lichess, 9337);
+    ASSERT_TRUE(state.has_value());
+    EXPECT_TRUE(state->SanMoves.empty());
+}

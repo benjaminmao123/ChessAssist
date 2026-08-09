@@ -32,6 +32,24 @@ void LogPanel::AddLine(spdlog::level::level_enum level, std::string_view line)
 
     m_Buffer.append(line.data(), line.data() + line.size());
     m_Buffer.append("\n");
+
+    TrimIfNeeded();
+}
+
+void LogPanel::TrimIfNeeded()
+{
+    if (m_LineOffsets.Size <= kTrimThreshold)
+        return;
+
+    const int dropCount = m_LineOffsets.Size - kMaxLines;
+    const int dropBytes = m_LineOffsets[dropCount];
+
+    m_Buffer.Buf.erase(m_Buffer.Buf.begin(), m_Buffer.Buf.begin() + dropBytes);
+    m_LineOffsets.erase(m_LineOffsets.begin(), m_LineOffsets.begin() + dropCount);
+    m_LineLevels.erase(m_LineLevels.begin(), m_LineLevels.begin() + dropCount);
+
+    for (int& offset : m_LineOffsets)
+        offset -= dropBytes;
 }
 
 void LogPanel::Draw()
@@ -51,7 +69,7 @@ void LogPanel::Draw()
     ImGui::SameLine();
     ImGui::Checkbox("Selectable", &m_Selectable);
     ImGui::SameLine();
-    m_Filter.Draw("Filter", -40.0f);
+    m_Filter.Draw("Filter", -60.0f);
 
     ImGui::Separator();
 

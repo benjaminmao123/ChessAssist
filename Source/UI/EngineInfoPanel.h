@@ -1,6 +1,7 @@
 #pragma once
 
-#include "../Engine/EngineTypes.h"
+#include "Chess/ChessTypes.h"
+#include "Engine/EngineTypes.h"
 
 #include <mutex>
 #include <optional>
@@ -11,14 +12,26 @@
 class EngineInfoPanel
 {
 public:
-    void UpdateInfo(const SearchInfo& info);
+    // requestedSide is whichever side the search producing info is analyzing for - UCI
+    // "score" is always relative to that side, not to White, so Draw() needs it to flip the
+    // sign into the conventional "positive = good for White" display when it's Black's turn.
+    void UpdateInfo(const SearchInfo& info, PieceColor requestedSide);
     void UpdateBestMove(const BestMoveResult& result);
 
-    // Not thread-safe: call once per frame from the UI thread only.
-    void Draw();
+    // Draws depth/score/nodes/nps/PV/best-move as plain widgets, without an owning
+    // ImGui::Begin()/End() of its own - the caller (BoardStatePanel, which consolidates this
+    // alongside the visual board) is responsible for that. Not thread-safe: call once per
+    // frame from the UI thread only, inside an existing window.
+    void DrawContents();
+
+    // White's-perspective evaluation fraction for an eval bar: 0 = totally winning for Black,
+    // 1 = totally winning for White, 0.5 = equal. nullopt if no search info yet. A forced mate
+    // always returns 0 or 1 outright; otherwise see the .cpp comment on the tanh compression.
+    [[nodiscard]] std::optional<float> GetWhiteWinFraction() const;
 
 private:
-    std::mutex m_Mutex;
+    mutable std::mutex m_Mutex;
     std::optional<SearchInfo> m_LatestInfo;
+    PieceColor m_LatestInfoSide = PieceColor::White;
     std::optional<BestMoveResult> m_LatestBestMove;
 };

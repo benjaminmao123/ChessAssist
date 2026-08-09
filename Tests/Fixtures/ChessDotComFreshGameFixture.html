@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<head><title>ChessAssist test fixture - chess.com style, fresh game (no moves yet)</title></head>
+<body>
+<!-- Board present but zero moves played - exercises ChessSiteAdapter's isGameOpen()
+     fallback: the move-list heuristic alone can't tell "zero moves played" apart from "no
+     game open", since neither has any SAN-shaped text anywhere yet on the page. -->
+<wc-chess-board class="board" style="display:block;width:400px;height:400px;"></wc-chess-board>
+<vertical-move-list></vertical-move-list>
+</body>
+</html>

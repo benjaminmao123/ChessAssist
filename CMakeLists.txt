@@ -14,6 +14,7 @@ find_package(OpenGL REQUIRED)
 find_package(ixwebsocket CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_path(INI_CPP_INCLUDE_DIRS "ini/ini.h")
+find_package(Stb REQUIRED)
 
 add_subdirectory(Vendor)
 add_subdirectory(Source)

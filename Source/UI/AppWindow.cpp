@@ -1,6 +1,7 @@
 #include "AppWindow.h"
 
-#include "../Logging/Log.h"
+#include "Engine/ExecutablePathUtil.h"
+#include "Logging/Log.h"
 
 #include <imgui.h>
 
@@ -30,21 +31,43 @@ void GlfwErrorCallback(int error, const char* description)
 // to window size (see BeginFrame - resize-driven scaling was tried and reverted).
 constexpr float kUiScale = 1.5f;
 
-// A flatter, more rounded dark theme with a teal accent, layered on top of ImGui's default
-// dark palette rather than replacing it wholesale - anything not overridden below still comes
-// from StyleColorsDark().
+// Baked directly into the font atlas at the final on-screen size (rather than loading at a
+// base size and stretching via io.FontGlobalScale) so text stays crisp instead of blurring
+// from bitmap upscaling.
+constexpr float kBaseFontSize = 16.0f;
+
+// Loads the bundled Roboto Medium as the default font, replacing Dear ImGui's built-in
+// pixel font used by the screenshot mock this theme matches. Falls back to the built-in font
+// (AddFontDefault) if the bundled .ttf isn't found next to the executable.
+void LoadUiFont(ImGuiIO& io)
+{
+    const std::filesystem::path fontPath = ExecutablePathUtil::GetAssetsDirectory() / "Fonts" / "Roboto-Medium.ttf";
+
+    ImFont* font = io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), kBaseFontSize * kUiScale);
+    if (!font)
+    {
+        LOG_ERROR("Failed to load UI font from {} - falling back to the built-in font", fontPath.string());
+        io.Fonts->AddFontDefault();
+    }
+}
+
+// A near-black "dashboard" dark theme - light-gray/white text on a near-black canvas, a
+// blue accent reserved for checkboxes/checkmarks and focus states, and white/light-gray
+// grabs for sliders and progress fills, layered on top of ImGui's default dark palette
+// rather than replacing it wholesale - anything not overridden below still comes from
+// StyleColorsDark().
 void ApplyModernDarkTheme()
 {
     ImGui::StyleColorsDark();
 
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 8.0f;
-    style.ChildRounding = 6.0f;
-    style.FrameRounding = 5.0f;
-    style.PopupRounding = 6.0f;
-    style.ScrollbarRounding = 9.0f;
-    style.GrabRounding = 5.0f;
-    style.TabRounding = 5.0f;
+    style.WindowRounding = 10.0f;
+    style.ChildRounding = 8.0f;
+    style.FrameRounding = 6.0f;
+    style.PopupRounding = 8.0f;
+    style.ScrollbarRounding = 10.0f;
+    style.GrabRounding = 6.0f;
+    style.TabRounding = 6.0f;
     style.WindowBorderSize = 1.0f;
     style.FrameBorderSize = 0.0f;
     style.PopupBorderSize = 1.0f;
@@ -55,54 +78,58 @@ void ApplyModernDarkTheme()
     style.ScrollbarSize = 14.0f;
     style.GrabMinSize = 10.0f;
 
+    // Single accent used sparingly (checkbox fill, focus/drag/dock highlights) - everything
+    // else in the screenshot's reference palette is neutral gray/white.
+    constexpr ImVec4 kAccentBlue(0.231f, 0.510f, 0.965f, 1.00f);
+
     ImVec4* colors = style.Colors;
-    colors[ImGuiCol_Text] = ImVec4(0.92f, 0.93f, 0.94f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.52f, 0.55f, 1.00f);
-    colors[ImGuiCol_WindowBg] = ImVec4(0.098f, 0.106f, 0.122f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.098f, 0.106f, 0.122f, 0.00f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.110f, 0.118f, 0.135f, 0.98f);
-    colors[ImGuiCol_Border] = ImVec4(0.20f, 0.22f, 0.26f, 0.60f);
+    colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.96f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.55f, 0.55f, 0.58f, 1.00f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.051f, 0.051f, 0.059f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.051f, 0.051f, 0.059f, 0.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.086f, 0.086f, 0.098f, 0.98f);
+    colors[ImGuiCol_Border] = ImVec4(0.15f, 0.15f, 0.17f, 0.55f);
     colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.150f, 0.163f, 0.188f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.190f, 0.207f, 0.239f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.220f, 0.240f, 0.278f, 1.00f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.078f, 0.086f, 0.098f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.110f, 0.290f, 0.360f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.078f, 0.086f, 0.098f, 0.75f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.110f, 0.118f, 0.135f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.078f, 0.086f, 0.098f, 0.60f);
-    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.250f, 0.270f, 0.310f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.310f, 0.340f, 0.390f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.150f, 0.550f, 0.650f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.150f, 0.600f, 0.700f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.160f, 0.400f, 0.460f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.150f, 0.550f, 0.650f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.120f, 0.620f, 0.720f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.160f, 0.400f, 0.460f, 0.70f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.150f, 0.550f, 0.650f, 0.85f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.120f, 0.620f, 0.720f, 1.00f);
-    colors[ImGuiCol_Separator] = ImVec4(0.220f, 0.240f, 0.278f, 1.00f);
-    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.150f, 0.550f, 0.650f, 1.00f);
-    colors[ImGuiCol_SeparatorActive] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
-    colors[ImGuiCol_ResizeGrip] = ImVec4(0.150f, 0.550f, 0.650f, 0.30f);
-    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.150f, 0.550f, 0.650f, 0.65f);
-    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.150f, 0.680f, 0.780f, 0.90f);
-    colors[ImGuiCol_Tab] = ImVec4(0.110f, 0.118f, 0.135f, 1.00f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.150f, 0.550f, 0.650f, 0.80f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.150f, 0.400f, 0.460f, 1.00f);
-    colors[ImGuiCol_TabUnfocused] = ImVec4(0.090f, 0.098f, 0.112f, 1.00f);
-    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.130f, 0.230f, 0.260f, 1.00f);
-    colors[ImGuiCol_DockingPreview] = ImVec4(0.150f, 0.550f, 0.650f, 0.60f);
-    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.078f, 0.086f, 0.098f, 1.00f);
-    colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.62f, 1.00f);
-    colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
-    colors[ImGuiCol_PlotHistogram] = ImVec4(0.150f, 0.600f, 0.700f, 1.00f);
-    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.150f, 0.550f, 0.650f, 0.35f);
-    colors[ImGuiCol_DragDropTarget] = ImVec4(0.150f, 0.680f, 0.780f, 0.90f);
-    colors[ImGuiCol_NavHighlight] = ImVec4(0.150f, 0.680f, 0.780f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.102f, 0.102f, 0.118f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.129f, 0.129f, 0.149f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.157f, 0.157f, 0.180f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.039f, 0.039f, 0.047f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.059f, 0.059f, 0.071f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.039f, 0.039f, 0.047f, 0.75f);
+    colors[ImGuiCol_MenuBarBg] = ImVec4(0.075f, 0.075f, 0.086f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.039f, 0.039f, 0.047f, 0.60f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.165f, 0.165f, 0.188f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.208f, 0.208f, 0.235f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = kAccentBlue;
+    colors[ImGuiCol_CheckMark] = kAccentBlue;
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.85f, 0.85f, 0.87f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.97f, 0.97f, 0.98f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.102f, 0.102f, 0.118f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.145f, 0.145f, 0.165f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.184f, 0.184f, 0.208f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.129f, 0.129f, 0.149f, 0.90f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.157f, 0.157f, 0.180f, 0.90f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.184f, 0.184f, 0.208f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.157f, 0.157f, 0.180f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.60f);
+    colors[ImGuiCol_SeparatorActive] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.90f);
+    colors[ImGuiCol_ResizeGrip] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.25f);
+    colors[ImGuiCol_ResizeGripHovered] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.55f);
+    colors[ImGuiCol_ResizeGripActive] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.80f);
+    colors[ImGuiCol_Tab] = ImVec4(0.075f, 0.075f, 0.086f, 1.00f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.157f, 0.157f, 0.180f, 0.90f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.129f, 0.129f, 0.149f, 1.00f);
+    colors[ImGuiCol_TabUnfocused] = ImVec4(0.059f, 0.059f, 0.071f, 1.00f);
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.094f, 0.094f, 0.106f, 1.00f);
+    colors[ImGuiCol_DockingPreview] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.50f);
+    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.039f, 0.039f, 0.047f, 1.00f);
+    colors[ImGuiCol_PlotLines] = ImVec4(0.75f, 0.75f, 0.78f, 1.00f);
+    colors[ImGuiCol_PlotLinesHovered] = kAccentBlue;
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.85f, 0.85f, 0.87f, 1.00f);
+    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.97f, 0.97f, 0.98f, 1.00f);
+    colors[ImGuiCol_TextSelectedBg] = ImVec4(kAccentBlue.x, kAccentBlue.y, kAccentBlue.z, 0.35f);
+    colors[ImGuiCol_DragDropTarget] = kAccentBlue;
+    colors[ImGuiCol_NavHighlight] = kAccentBlue;
 }
 }  // namespace
 
@@ -150,7 +177,7 @@ bool AppWindow::Init(int width, int height, const std::string& title)
 
     ApplyModernDarkTheme();
     ImGui::GetStyle().ScaleAllSizes(kUiScale);
-    io.FontGlobalScale = kUiScale;
+    LoadUiFont(io);
 
     ImGui_ImplGlfw_InitForOpenGL(m_Impl->Window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
@@ -190,7 +217,7 @@ void AppWindow::Restore()
         glfwRestoreWindow(m_Impl->Window);
 }
 
-void AppWindow::BeginFrame()
+unsigned int AppWindow::BeginFrame()
 {
     glfwPollEvents();
 
@@ -200,7 +227,7 @@ void AppWindow::BeginFrame()
 
     // Gives every ImGui::Begin() window a full-viewport area to dock into; the central
     // node stays transparent so it doesn't paint over anything drawn behind it.
-    ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
+    return ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 }
 
 void AppWindow::EndFrame()
@@ -212,7 +239,7 @@ void AppWindow::EndFrame()
     glfwGetFramebufferSize(m_Impl->Window, &displayWidth, &displayHeight);
 
     glViewport(0, 0, displayWidth, displayHeight);
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClearColor(0.039f, 0.039f, 0.047f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

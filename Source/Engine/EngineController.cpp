@@ -109,6 +109,7 @@ std::future<std::expected<BestMoveResult, EngineError>> EngineController::FindBe
         m_PendingRequestId = requestId;
     }
 
+    m_ActiveSearchRequestId = requestId;
     m_Client->SendPosition(fen, moves);
     m_Client->SendGo(limits);
 
@@ -138,6 +139,14 @@ bool EngineController::IsRunning() const
     return m_Client && m_Client->IsRunning();
 }
 
+bool EngineController::SetOption(std::string_view name, std::string_view value)
+{
+    if (!m_Client || !m_Client->IsRunning())
+        return false;
+
+    return m_Client->SendSetOption(name, value);
+}
+
 void EngineController::ReaderThreadLoop()
 {
     while (auto line = m_Client->ReadLine())
@@ -151,6 +160,11 @@ void EngineController::ReaderThreadLoop()
 
 void EngineController::HandleInfoLine(std::string_view line)
 {
+    // Discard info from a search that's already been superseded - see the member comment on
+    // m_ActiveSearchRequestId for why this can't be checked from the line's own content.
+    if (m_ActiveSearchRequestId.load() != m_RequestGeneration.load())
+        return;
+
     auto info = UCIProtocol::ParseInfoLine(line);
     if (!info)
         return;

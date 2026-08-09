@@ -2,12 +2,25 @@
 
 #include <imgui.h>
 
+#include <cmath>
 #include <string>
 
-void EngineInfoPanel::UpdateInfo(const SearchInfo& info)
+namespace
+{
+// UCI "score" is relative to the side to move, not to White - flip the sign so it always
+// follows the conventional "positive = good for White" reading, regardless of whose turn the
+// engine was analyzing. Shared by DrawContents() (text) and GetWhiteWinFraction() (eval bar).
+int WhitePerspectiveSign(PieceColor requestedSide)
+{
+    return (requestedSide == PieceColor::Black) ? -1 : 1;
+}
+}  // namespace
+
+void EngineInfoPanel::UpdateInfo(const SearchInfo& info, PieceColor requestedSide)
 {
     std::scoped_lock lock(m_Mutex);
     m_LatestInfo = info;
+    m_LatestInfoSide = requestedSide;
 }
 
 void EngineInfoPanel::UpdateBestMove(const BestMoveResult& result)
@@ -16,26 +29,37 @@ void EngineInfoPanel::UpdateBestMove(const BestMoveResult& result)
     m_LatestBestMove = result;
 }
 
-void EngineInfoPanel::Draw()
+void EngineInfoPanel::DrawContents()
 {
     std::optional<SearchInfo> info;
+    PieceColor infoSide = PieceColor::White;
     std::optional<BestMoveResult> bestMove;
     {
         std::scoped_lock lock(m_Mutex);
         info = m_LatestInfo;
+        infoSide = m_LatestInfoSide;
         bestMove = m_LatestBestMove;
     }
-
-    ImGui::Begin("Engine");
 
     if (info)
     {
         ImGui::Text("Depth: %d", info->Depth);
 
+        const int sign = WhitePerspectiveSign(infoSide);
+
         if (info->ScoreMate)
-            ImGui::Text("Score: mate in %d", *info->ScoreMate);
+        {
+            // A raw signed "mate in -3" reads like an error (a move count can't be negative) -
+            // unlike the cp score, where a plain signed decimal is normal, name the mating
+            // side explicitly instead of leaning on the sign-convention.
+            const int mateForWhite = sign * (*info->ScoreMate);
+            if (mateForWhite >= 0)
+                ImGui::Text("Score: White mates in %d", mateForWhite);
+            else
+                ImGui::Text("Score: Black mates in %d", -mateForWhite);
+        }
         else if (info->ScoreCp)
-            ImGui::Text("Score: %.2f", static_cast<double>(*info->ScoreCp) / 100.0);
+            ImGui::Text("Score: %.2f", sign * static_cast<double>(*info->ScoreCp) / 100.0);
         else
             ImGui::TextDisabled("Score: -");
 
@@ -65,6 +89,34 @@ void EngineInfoPanel::Draw()
         ImGui::Text("Best move: %s", bestMove->BestMove.c_str());
     else
         ImGui::TextDisabled("Best move: -");
+}
 
-    ImGui::End();
+std::optional<float> EngineInfoPanel::GetWhiteWinFraction() const
+{
+    std::optional<SearchInfo> info;
+    PieceColor infoSide = PieceColor::White;
+    {
+        std::scoped_lock lock(m_Mutex);
+        info = m_LatestInfo;
+        infoSide = m_LatestInfoSide;
+    }
+
+    if (!info)
+        return std::nullopt;
+
+    const int sign = WhitePerspectiveSign(infoSide);
+
+    if (info->ScoreMate)
+        return (sign * (*info->ScoreMate) >= 0) ? 1.0f : 0.0f;
+
+    if (info->ScoreCp)
+    {
+        // Compresses large advantages via tanh rather than a hard linear clamp, so the bar
+        // approaches (but never quite reaches) full only in truly lopsided positions - matches
+        // the feel of lichess/chess.com-style eval bars better than a flat +-N cp cutoff.
+        const float cpForWhite = static_cast<float>(sign * (*info->ScoreCp));
+        return 0.5f + 0.5f * std::tanh(cpForWhite / 400.0f);
+    }
+
+    return std::nullopt;
 }

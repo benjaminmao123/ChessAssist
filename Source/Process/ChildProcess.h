@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Engine/EngineTypes.h"
+#include "Engine/EngineTypes.h"
 
 #include <expected>
 #include <filesystem>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineTypes.h"
-#include "../Process/ChildProcess.h"
+#include "Process/ChildProcess.h"
 
 #include <expected>
 #include <filesystem>

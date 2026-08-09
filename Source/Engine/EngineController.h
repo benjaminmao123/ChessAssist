@@ -40,6 +40,14 @@ public:
     void SetOnBestMove(BestMoveCallback callback);
     [[nodiscard]] bool IsRunning() const;
 
+    // Sends "setoption name <name> value <value>" - e.g. UCI_LimitStrength/UCI_Elo to cap
+    // playing strength. Takes effect for future searches, not one already in flight. A fresh
+    // engine process starts with every option at its default, so callers that restart the
+    // engine (see ControlsPanel::RestartEngine) are responsible for re-sending anything that
+    // needs to persist across a restart - this class has no memory of previously-set options.
+    // Returns false without sending anything if the engine isn't running.
+    bool SetOption(std::string_view name, std::string_view value);
+
 private:
     void ReaderThreadLoop();
     void HandleInfoLine(std::string_view line);
@@ -63,6 +71,18 @@ private:
     // exists, this one is stale and its OnBestMove callback is suppressed (its promise is
     // still fulfilled, so blocking FindBestMove() callers aren't left hanging).
     std::atomic<std::uint64_t> m_RequestGeneration{0};
+
+    // Request ID of the search whose "position"/"go" was most recently actually sent to the
+    // engine (set in FindBestMoveAsync right alongside SendPosition/SendGo). Unlike bestmove
+    // lines, UCI "info" lines carry no id linking them back to a request, so HandleInfoLine
+    // can't compare against a per-line request ID - it instead compares this against
+    // m_RequestGeneration: if a newer request already exists (e.g. one that's still waiting
+    // for this search's own stop-triggered bestmove before it can send its own position/go),
+    // any info line arriving in the meantime belongs to a search that's already superseded
+    // and must be discarded rather than shown - a search stopped microseconds after starting
+    // can otherwise surface a placeholder line like "info depth 0 score mate 0" that then
+    // sits in the UI, indistinguishable from a real result, until fresher info arrives.
+    std::atomic<std::uint64_t> m_ActiveSearchRequestId{0};
 
     std::mutex m_PendingMutex;
     std::optional<std::promise<std::expected<BestMoveResult, EngineError>>> m_PendingBestMove;

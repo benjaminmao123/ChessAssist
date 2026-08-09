@@ -127,6 +127,17 @@ std::expected<void, CdpError> CdpClient::Connect(const std::string& webSocketDeb
     m_Impl->ConnectOpened = false;
     m_Impl->ConnectFailed = false;
 
+    // Reset state left over from a previous connection - in particular ConnectionLost, set by
+    // HandleMessage on the old socket's Close/Error event (including the one Disconnect()'s
+    // WebSocket.stop() triggers on a normal reconnect). Without this, every SendCommand on the
+    // new connection fails immediately with "connection lost", even though it's healthy.
+    {
+        std::scoped_lock lock(m_Impl->PendingMutex);
+        m_Impl->ConnectionLost = false;
+        m_Impl->HasPending = false;
+        m_Impl->PendingResponse.reset();
+    }
+
     m_Impl->WebSocket.setUrl(webSocketDebuggerUrl);
     m_Impl->WebSocket.disableAutomaticReconnection();
     m_Impl->WebSocket.setOnMessageCallback([this](const ix::WebSocketMessagePtr& message) { m_Impl->HandleMessage(message); });
@@ -155,7 +166,7 @@ bool CdpClient::IsConnected() const
     return m_Impl->WebSocket.getReadyState() == ix::ReadyState::Open;
 }
 
-std::expected<std::string, CdpError> CdpClient::EvaluateJs(std::string_view js, std::chrono::milliseconds timeout)
+std::expected<std::string, CdpError> CdpClient::SendCommand(std::string_view method, std::string_view jsonParams, std::chrono::milliseconds timeout)
 {
     if (!IsConnected())
         return std::unexpected(CdpError{"Not connected"});
@@ -164,8 +175,8 @@ std::expected<std::string, CdpError> CdpClient::EvaluateJs(std::string_view js, 
 
     const nlohmann::json request = {
         {"id", requestId},
-        {"method", "Runtime.evaluate"},
-        {"params", {{"expression", std::string(js)}, {"returnByValue", true}, {"awaitPromise", false}}},
+        {"method", std::string(method)},
+        {"params", nlohmann::json::parse(jsonParams)},
     };
 
     {
@@ -197,10 +208,18 @@ std::expected<std::string, CdpError> CdpClient::EvaluateJs(std::string_view js, 
     if (response.contains("error"))
         return std::unexpected(CdpError{"CDP error: " + response["error"].dump()});
 
-    if (!response.contains("result") || !response["result"].is_object())
-        return std::unexpected(CdpError{"Malformed CDP response: missing result"});
+    return response.value("result", nlohmann::json::object()).dump();
+}
 
-    const nlohmann::json& evaluateResult = response["result"];
+std::expected<std::string, CdpError> CdpClient::EvaluateJs(std::string_view js, std::chrono::milliseconds timeout)
+{
+    const nlohmann::json params = {{"expression", std::string(js)}, {"returnByValue", true}, {"awaitPromise", false}};
+
+    const std::expected<std::string, CdpError> resultJson = SendCommand("Runtime.evaluate", params.dump(), timeout);
+    if (!resultJson)
+        return std::unexpected(resultJson.error());
+
+    const nlohmann::json evaluateResult = nlohmann::json::parse(*resultJson);
 
     if (evaluateResult.contains("exceptionDetails"))
         return std::unexpected(CdpError{"JS exception: " + evaluateResult["exceptionDetails"].dump()});
@@ -213,4 +232,49 @@ std::expected<std::string, CdpError> CdpClient::EvaluateJs(std::string_view js, 
         return remoteObject["value"].dump();
 
     return std::string("null");
+}
+
+std::expected<void, CdpError> CdpClient::DragMouse(double fromX, double fromY, double toX, double toY, std::chrono::milliseconds timeout)
+{
+    // Interpolated intermediate mouseMoved events so sites that gate a "drag" on a minimum
+    // pointer travel distance (rather than acting on mouseup position alone) see one.
+    constexpr int kMoveSteps = 5;
+
+    const auto dispatchMouseEvent = [this, timeout](std::string_view type, double x, double y, int buttons) -> std::expected<void, CdpError>
+    {
+        const nlohmann::json params = {
+            {"type", std::string(type)},
+            {"x", x},
+            {"y", y},
+            {"button", "left"},
+            {"buttons", buttons},
+            {"clickCount", 1},
+        };
+
+        const std::expected<std::string, CdpError> result = SendCommand("Input.dispatchMouseEvent", params.dump(), timeout);
+        if (!result)
+            return std::unexpected(result.error());
+
+        return {};
+    };
+
+    if (const auto result = dispatchMouseEvent("mousePressed", fromX, fromY, 1); !result)
+        return result;
+
+    for (int step = 1; step <= kMoveSteps; ++step)
+    {
+        const double t = static_cast<double>(step) / kMoveSteps;
+        const double x = fromX + (toX - fromX) * t;
+        const double y = fromY + (toY - fromY) * t;
+
+        if (const auto result = dispatchMouseEvent("mouseMoved", x, y, 1); !result)
+            return result;
+    }
+
+    return dispatchMouseEvent("mouseReleased", toX, toY, 0);
+}
+
+std::expected<void, CdpError> CdpClient::Click(double x, double y, std::chrono::milliseconds timeout)
+{
+    return DragMouse(x, y, x, y, timeout);
 }
