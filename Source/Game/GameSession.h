@@ -228,13 +228,18 @@ private:
 
     std::atomic<bool> m_PremoveEnabled{false};
 
-    // PredictedOpponentMove/OurResponse are PV[1]/PV[2] from our own last search (see
-    // OnEngineInfo) - "if the opponent plays this, our best reply is this". Written by
-    // OnEngineInfo (reader thread), consumed by TryPremove (UI thread, via Poll()) and
-    // cleared by RequestEngineMove (UI thread) since a new search invalidates whatever the
-    // previous one predicted.
+    // ExpectedOwnMove/PredictedOpponentMove/OurResponse are PV[0]/PV[1]/PV[2] from our own
+    // last search (see OnEngineInfo) - "we expect to play this; if the opponent then plays
+    // this, our best reply is this". Written by OnEngineInfo (reader thread), consumed and
+    // cleared by TryPremove (UI thread, via Poll()) - both when it fires (matched) and when it
+    // determines a stored candidate no longer applies (ExpectedOwnMove didn't match what we
+    // actually just played, e.g. a human overrode the suggestion). Deliberately NOT cleared by
+    // RequestEngineMove(): the informational request made for the opponent's turn immediately
+    // after our own move is exactly the position this candidate is waiting out, so clearing it
+    // there (as an earlier version of this code did) meant premove could never fire at all.
     struct PremoveCandidate
     {
+        std::string ExpectedOwnMove;
         std::string PredictedOpponentMove;
         std::string OurResponse;
     };

@@ -399,7 +399,7 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
         return;
 
     std::scoped_lock lock(m_PremoveMutex);
-    m_PremoveCandidate = PremoveCandidate{info.Pv[1], info.Pv[2]};
+    m_PremoveCandidate = PremoveCandidate{info.Pv[0], info.Pv[1], info.Pv[2]};
 }
 
 void GameSession::Tick()
@@ -490,11 +490,21 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
     if (!m_PremoveEnabled.load() || !m_AutoplayEnabled.load())
         return false;
 
-    // lastAppliedMove needs to actually be the opponent's - i.e. it's now the tracked
-    // player's own turn - or this candidate (predicated on it being our search) doesn't apply.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
     if (m_Tracker.GetSideToMove() != myColor)
+    {
+        // lastAppliedMove was our own move (side to move just flipped to the opponent) - too
+        // early to check the candidate against the opponent's reply, but this is the one
+        // moment we can validate it's still trustworthy: if we didn't actually play the move
+        // the candidate assumed (ExpectedOwnMove) - e.g. a human overrode the suggestion -
+        // its predicted opponent reply/response no longer describes the real position, so
+        // discard it rather than risk it later matching the opponent's move by coincidence and
+        // firing a response computed for a different position.
+        std::scoped_lock lock(m_PremoveMutex);
+        if (m_PremoveCandidate && m_PremoveCandidate->ExpectedOwnMove != lastAppliedMove)
+            m_PremoveCandidate.reset();
         return false;
+    }
 
     std::optional<PremoveCandidate> candidate;
     {
@@ -536,18 +546,17 @@ void GameSession::RequestEngineMove(bool quickVerify)
     if (quickVerify)
         limits.MoveTimeMs = std::min(*limits.MoveTimeMs, kPremoveVerifyMoveTimeMs);
 
-    // The position is about to change (this request supersedes whatever the last suggestion/
-    // premove candidate was for) - clear both now rather than leaving stale data around until
-    // the new result arrives, which is especially noticeable for the opponent's turn
-    // (isOurTurn will be false in OnEngineBestMove/OnEngineInfo, so neither would otherwise
-    // get cleared until our turn again).
+    // The position is about to change (this request supersedes whatever the last suggestion
+    // was for) - clear it now rather than leaving stale data around until the new result
+    // arrives, which is especially noticeable for the opponent's turn (isOurTurn will be false
+    // in OnEngineBestMove, so it wouldn't otherwise get cleared until our turn again).
+    //
+    // m_PremoveCandidate is deliberately NOT cleared here - see its comment in GameSession.h.
+    // TryPremove() owns clearing it (on both a successful/failed match against the opponent's
+    // actual reply, and on detecting our own move didn't match what the candidate assumed).
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
-    }
-    {
-        std::scoped_lock lock(m_PremoveMutex);
-        m_PremoveCandidate.reset();
     }
 
     m_RequestedForSide = m_Tracker.GetSideToMove();
