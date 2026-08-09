@@ -172,6 +172,11 @@ const BoardState& GameSession::GetTrackedBoard() const
     return m_Rules.GetBoard();
 }
 
+std::optional<int> GameSession::GetCheckedKingSquare() const
+{
+    return m_Rules.CheckedKingSquare();
+}
+
 std::vector<std::string> GameSession::Poll()
 {
     std::vector<std::string> newMoves;
@@ -315,19 +320,21 @@ bool GameSession::IsAutoplayEnabled() const
 
 void GameSession::OnEngineBestMove(const BestMoveResult& result)
 {
-    // Only for results computed for the tracked player's own turn - see the member comments
-    // on m_RequestedForSide/m_BlackAtBottom for why this pairing is safe to read from the
-    // reader thread without touching m_Tracker directly.
+    // See the member comments on m_RequestedForSide/m_BlackAtBottom for why this pairing is
+    // safe to read from the reader thread without touching m_Tracker directly.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
     const PieceColor requestedSide = m_RequestedForSide.load();
     const bool isOurTurn = requestedSide == myColor;
 
-    if (isOurTurn)
+    // Shown as the board arrow regardless of whose turn this was analyzing (see
+    // BoardStatePanel::Draw) - unlike m_PendingAutoMove below, which stays strictly
+    // isOurTurn-gated since actually playing a move for the opponent would be nonsensical.
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove = result.BestMove;
     }
-    else
+
+    if (!isOurTurn)
     {
         // This search analyzed the position right after whatever move the tracked player
         // actually just made - autoplay's own suggestion, a premove, or a human manually

@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 
 namespace
@@ -201,7 +202,7 @@ void BoardStatePanel::LoadTextures()
     m_Impl->TexturesLoaded = true;
 }
 
-void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<float> accuracyPercent)
+void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<int> checkedKingSquare, std::optional<float> accuracyPercent)
 {
     ImGui::Begin("Tracked Board");
 
@@ -213,6 +214,12 @@ void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const st
     constexpr ImU32 kSourceHighlightColor = IM_COL32(0xFF, 0xCD, 0x00, 110);
     constexpr ImU32 kDestHighlightColor = IM_COL32(0x00, 0xC8, 0x5A, 110);
     constexpr ImU32 kArrowColor = IM_COL32(0xFF, 0x8C, 0x00, 220);
+    constexpr ImU32 kMatingArrowColor = IM_COL32(0xFF, 0x2A, 0x2A, 235);
+    constexpr ImU32 kCheckHighlightColor = IM_COL32(0xFF, 0x1A, 0x1A, 150);
+    constexpr ImU32 kMateBannerBg = IM_COL32(0x20, 0x00, 0x00, 210);
+    constexpr ImU32 kMateBannerText = IM_COL32(0xFF, 0x70, 0x70, 255);
+
+    const std::optional<EngineInfoPanel::MateInfo> mateInfo = m_EnginePanel->GetMateInfo();
 
     // Fills whatever space the panel actually has rather than a fixed pixel size, so the
     // board is as big as the window/dock layout allows instead of floating in a small corner
@@ -263,6 +270,13 @@ void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const st
         drawList->AddRectFilled(suggested->ToMin, suggested->ToMax, kDestHighlightColor);
     }
 
+    if (checkedKingSquare)
+    {
+        const ImVec2 checkMin = SquareMin(*checkedKingSquare % 8, *checkedKingSquare / 8, blackAtBottom, boardOrigin, squareSize);
+        const ImVec2 checkMax(checkMin.x + squareSize, checkMin.y + squareSize);
+        drawList->AddRectFilled(checkMin, checkMax, kCheckHighlightColor);
+    }
+
     for (int visualRow = 0; visualRow < 8; ++visualRow)
     {
         for (int visualCol = 0; visualCol < 8; ++visualCol)
@@ -284,9 +298,27 @@ void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const st
         }
     }
 
-    // Arrow drawn last so it sits on top of the pieces instead of being hidden under them.
+    // Arrow drawn last so it sits on top of the pieces instead of being hidden under them. Red
+    // instead of the default orange when mateInfo is set - suggestedMove and the engine's
+    // latest search info both come from the same ongoing search stream (see GameSession::
+    // GetSuggestedMove()/EngineInfoPanel::GetMateInfo()), so whenever a forced mate is being
+    // reported, this arrow is (or is about to become, within the same frame or two) the move
+    // that leads to it.
     if (suggested)
-        DrawArrow(drawList, suggested->FromCenter, suggested->ToCenter, kArrowColor, std::max(squareSize * 0.1f, 3.0f));
+        DrawArrow(drawList, suggested->FromCenter, suggested->ToCenter, mateInfo ? kMatingArrowColor : kArrowColor, std::max(squareSize * 0.1f, 3.0f));
+
+    // On-board "mate in N" banner, top-left corner of the board itself rather than buried in
+    // the score text below - drawn last so it sits above the board/pieces/arrow.
+    if (mateInfo)
+    {
+        char banner[48];
+        std::snprintf(banner, sizeof(banner), "%s mates in %d", mateInfo->WhiteIsMating ? "White" : "Black", mateInfo->DistanceInMoves);
+        const ImVec2 textSize = ImGui::CalcTextSize(banner);
+        const ImVec2 bannerMin(boardOrigin.x + 4.0f, boardOrigin.y + 4.0f);
+        const ImVec2 bannerMax(bannerMin.x + textSize.x + 12.0f, bannerMin.y + textSize.y + 8.0f);
+        drawList->AddRectFilled(bannerMin, bannerMax, kMateBannerBg, 4.0f);
+        drawList->AddText(ImVec2(bannerMin.x + 6.0f, bannerMin.y + 4.0f), kMateBannerText, banner);
+    }
 
     // Reserves layout space for the eval bar + board so the window sizes/scrolls correctly -
     // everything above was drawn directly via the draw list, not through any layout-owning

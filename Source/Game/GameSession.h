@@ -46,6 +46,12 @@ public:
     [[nodiscard]] const GameTracker& GetTracker() const;
     [[nodiscard]] const BoardState& GetTrackedBoard() const;
 
+    // Square index of the tracked board's checked king, if either side is currently in check,
+    // else nullopt - see ChessRules::CheckedKingSquare(). UI-thread-only, same as
+    // GetTrackedBoard() (m_Rules is touched only from Poll()/Tick(), both UI-thread-only).
+    // Display code (BoardStatePanel) uses this to highlight the checked king's square.
+    [[nodiscard]] std::optional<int> GetCheckedKingSquare() const;
+
     // Re-runs the site's extraction script and applies any moves new since the last call.
     // Returns them, in order, as UCI. Requests a fresh engine move once at the end if
     // anything was applied - never more than once per call, regardless of how many moves

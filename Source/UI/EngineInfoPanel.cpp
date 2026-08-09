@@ -136,3 +136,21 @@ std::optional<float> EngineInfoPanel::GetWhiteWinFraction() const
 
     return std::nullopt;
 }
+
+std::optional<EngineInfoPanel::MateInfo> EngineInfoPanel::GetMateInfo() const
+{
+    std::optional<SearchInfo> info;
+    PieceColor infoSide = PieceColor::White;
+    {
+        std::scoped_lock lock(m_Mutex);
+        info = m_LatestInfo;
+        infoSide = m_LatestInfoSide;
+    }
+
+    if (!info || !info->ScoreMate)
+        return std::nullopt;
+
+    const int sign = WhitePerspectiveSign(infoSide);
+    const bool whiteIsMating = static_cast<float>(sign) * SideToMoveMateMagnitude(*info->ScoreMate) >= 0.0f;
+    return MateInfo{std::abs(*info->ScoreMate), whiteIsMating};
+}

@@ -109,7 +109,7 @@ int App::Run()
         }
 
         m_ControlsPanel.Draw();
-        m_BoardStatePanel.Draw(m_GameSession.GetTrackedBoard(), m_GameSession.IsBlackAtBottom(), m_GameSession.GetSuggestedMove(), m_GameSession.GetAccuracyPercent());
+        m_BoardStatePanel.Draw(m_GameSession.GetTrackedBoard(), m_GameSession.IsBlackAtBottom(), m_GameSession.GetSuggestedMove(), m_GameSession.GetCheckedKingSquare(), m_GameSession.GetAccuracyPercent());
         m_LogPanel.Draw();
 
         const auto now = std::chrono::steady_clock::now();

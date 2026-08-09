@@ -30,6 +30,12 @@ public:
     [[nodiscard]] PieceColor GetSideToMove() const;
     [[nodiscard]] const BoardState& GetBoard() const;
 
+    // Square index of the side-to-move's king if it's currently attacked, else nullopt -
+    // reuses the same square-attack helper the pin tie-break above already relies on. Not a
+    // full checkmate/stalemate detector (this class deliberately isn't one - see the class
+    // comment), just "is this one square attacked right now".
+    [[nodiscard]] std::optional<int> CheckedKingSquare() const;
+
 private:
     [[nodiscard]] std::optional<std::string> ApplyCastle(bool kingside);
 

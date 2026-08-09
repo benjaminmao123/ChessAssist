@@ -76,7 +76,7 @@ void ControlsPanel::Draw()
             std::snprintf(m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size(), "%s", newPath->string().c_str());
     }
     ImGui::SameLine();
-    ImGui::InputText("Engine path", m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size());
+    ImGui::InputText("Path", m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size());
     if (ImGui::Button("Restart Engine"))
         RestartEngine(m_EngineExecutablePathBuffer.data());
     ImGui::EndDisabled();

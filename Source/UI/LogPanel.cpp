@@ -33,6 +33,9 @@ void LogPanel::AddLine(spdlog::level::level_enum level, std::string_view line)
     m_Buffer.append(line.data(), line.data() + line.size());
     m_Buffer.append("\n");
 
+    if (m_AutoScroll)
+        m_ScrollSelectableToBottomPending = true;
+
     TrimIfNeeded();
 }
 
@@ -103,7 +106,18 @@ void LogPanel::Draw()
             textEnd = textBegin + filtered.size();
         }
 
-        ImGui::InputTextMultiline("##LogText", const_cast<char*>(textBegin), static_cast<size_t>(textEnd - textBegin) + 1, ImVec2(-FLT_MIN, -FLT_MIN), ImGuiInputTextFlags_ReadOnly);
+        if (m_ScrollSelectableToBottomPending)
+        {
+            // x = -1 leaves horizontal scroll untouched; y = FLT_MAX gets clamped to the
+            // widget's actual max scroll once its content size is known this frame - the
+            // standard ImGui idiom for "scroll to bottom" when applied via SetNextWindowScroll
+            // rather than from inside the target window itself (see ScrollTargetCenterRatio
+            // handling in Begin()).
+            ImGui::SetNextWindowScroll(ImVec2(-1.0f, FLT_MAX));
+            m_ScrollSelectableToBottomPending = false;
+        }
+
+        ImGui::InputTextMultiline("##LogText", const_cast<char*>(textBegin), static_cast<size_t>(textEnd - textBegin) + 1, ImVec2(-FLT_MIN, -FLT_MIN), ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap);
     }
     else
     {

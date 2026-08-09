@@ -29,6 +29,19 @@ public:
     // always returns 0 or 1 outright; otherwise see the .cpp comment on the tanh compression.
     [[nodiscard]] std::optional<float> GetWhiteWinFraction() const;
 
+    // Forced-mate read on the latest search info, if any (a plain cp score - even a lopsided
+    // one - returns nullopt here). DistanceInMoves is always positive (moves until mate, from
+    // whichever side is to move in the analyzed position); WhiteIsMating says which side is
+    // actually delivering it, resolved the same mate-0-safe way as DrawContents()'s text (see
+    // SideToMoveMateMagnitude's comment). Display code (BoardStatePanel) uses this for an
+    // on-board "mate in N" banner and to distinguish the mating move's arrow.
+    struct MateInfo
+    {
+        int DistanceInMoves = 0;
+        bool WhiteIsMating = false;
+    };
+    [[nodiscard]] std::optional<MateInfo> GetMateInfo() const;
+
 private:
     mutable std::mutex m_Mutex;
     std::optional<SearchInfo> m_LatestInfo;

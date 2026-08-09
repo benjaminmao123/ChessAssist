@@ -38,10 +38,15 @@ public:
     // GameSession::IsBlackAtBottom) instead of always assuming White-at-bottom. suggestedMove,
     // if present, is the engine's UCI suggestion for the tracked player's own turn right now
     // (see GameSession::GetSuggestedMove()) - drawn as an arrow from the piece to move to
-    // where it should go, plus a highlight on both squares. accuracyPercent (see
+    // where it should go, plus a highlight on both squares; the arrow is drawn in a distinct
+    // color, and an on-board banner shown, when the latest search info (see EngineInfoPanel::
+    // GetMateInfo(), read directly from the enginePanel passed to the constructor) reports a
+    // forced mate, so it's visible at a glance which move leads to it. checkedKingSquare (see
+    // GameSession::GetCheckedKingSquare()), if present, is the canonically-indexed square of
+    // whichever king is currently in check, highlighted the same way. accuracyPercent (see
     // GameSession::GetAccuracyPercent()) is shown as text alongside the engine info below the
     // board, nullopt drawing a placeholder rather than being omitted.
-    void Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<float> accuracyPercent);
+    void Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<int> checkedKingSquare, std::optional<float> accuracyPercent);
 
 private:
     EngineInfoPanel* m_EnginePanel = nullptr;

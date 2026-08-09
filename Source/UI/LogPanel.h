@@ -39,4 +39,11 @@ private:
     ImGuiTextFilter m_Filter;
     bool m_AutoScroll = true;
     bool m_Selectable = false;
+
+    // Consumed by Draw()'s Selectable branch (InputTextMultiline doesn't auto-follow new
+    // content the way the normal clipped view does) - starts true so the very first draw in
+    // Selectable mode opens at the latest message rather than the top, and is re-armed by
+    // AddLine() while Auto-scroll is checked so it keeps following new lines the same way the
+    // normal view does.
+    bool m_ScrollSelectableToBottomPending = true;
 };

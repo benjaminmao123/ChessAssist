@@ -413,3 +413,12 @@ const BoardState& ChessRules::GetBoard() const
 {
     return m_Board;
 }
+
+std::optional<int> ChessRules::CheckedKingSquare() const
+{
+    const std::optional<int> kingSquare = FindKing(m_Board, m_SideToMove);
+    if (!kingSquare || !IsSquareAttacked(m_Board, *kingSquare, Opposite(m_SideToMove)))
+        return std::nullopt;
+
+    return kingSquare;
+}

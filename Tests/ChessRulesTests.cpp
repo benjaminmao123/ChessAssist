@@ -309,3 +309,27 @@ TEST(ChessRulesTest, ReplaysAShortRealGame)
         EXPECT_EQ(*move, entry.ExpectedUci) << entry.San;
     }
 }
+
+TEST(ChessRulesTest, NoCheckInStartingPosition)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    EXPECT_FALSE(rules.CheckedKingSquare().has_value());
+}
+
+TEST(ChessRulesTest, DetectsCheckAfterFoolsMate)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_TRUE(rules.ApplySanMove("f3").has_value());
+    ASSERT_TRUE(rules.ApplySanMove("e5").has_value());
+    ASSERT_TRUE(rules.ApplySanMove("g4").has_value());
+    ASSERT_TRUE(rules.ApplySanMove("Qh4#").has_value());
+
+    ASSERT_EQ(rules.GetSideToMove(), PieceColor::White);
+    const std::optional<int> checkedKing = rules.CheckedKingSquare();
+    ASSERT_TRUE(checkedKing.has_value());
+    EXPECT_EQ(*checkedKing, SquareIndex(4, 0));
+}
