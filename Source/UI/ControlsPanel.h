@@ -80,4 +80,12 @@ private:
     // Pre-filled with the bundled default so the field always shows what's actually running;
     // edit it and click Restart Engine to point at a different UCI-compatible executable.
     std::array<char, 512> m_EngineExecutablePathBuffer{};
+
+    // Opening book (see GameSession::LoadOpeningBook/SetOpeningBookEnabled) - no bundled
+    // default, unlike the engine path, so the buffer starts empty until the user browses to
+    // one or a previous path is restored from settings.ini.
+    bool m_OpeningBookEnabled = false;
+    std::array<char, 512> m_BookPathBuffer{};
+    // Index into kBookSelectionModeNames in ControlsPanel.cpp; 1 = weighted random (default).
+    int m_BookSelectionModeIndex = 1;
 };

@@ -33,6 +33,17 @@ struct Piece
 // independent of how the board is visually oriented on screen.
 using BoardState = std::array<std::optional<Piece>, 64>;
 
+// Which castling moves are still legally available to each side - independent of whether one
+// is possible *right now* (king in check, path blocked/attacked, etc.), same "rights" vs.
+// "legality" distinction FEN's own castling field draws. See ChessRules::GetCastlingRights().
+struct CastlingRights
+{
+    bool WhiteKingside = true;
+    bool WhiteQueenside = true;
+    bool BlackKingside = true;
+    bool BlackQueenside = true;
+};
+
 enum class BoardOrientation
 {
     WhiteBottom,

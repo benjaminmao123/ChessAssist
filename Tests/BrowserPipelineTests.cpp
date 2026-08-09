@@ -186,3 +186,33 @@ TEST(BrowserPipelineTest, LocatesPromotionPieceInRealChessDotComMarkup)
     // first '.promotion-piece' it finds regardless of the requested piece).
     EXPECT_NE(queenTarget->Y, knightTarget->Y);
 }
+
+TEST(BrowserPipelineTest, LocatesPromotionPieceInRealLichessMarkup)
+{
+    // Fixture is real markup captured from a live lichess promotion picker (see the fixture
+    // file itself) - proves PromotionPickerScript's exact-match selector ('#promotion-choice'
+    // > 'piece.<type>.<color>') actually works against it, not just that it parses as valid
+    // JS.
+    BrowserLauncher launcher;
+    CdpClient client;
+    ASSERT_TRUE(ConnectToFixture(client, launcher, "LichessPromotionFixture.html", 9339));
+
+    const std::expected<std::string, CdpError> queenResult = client.EvaluateJs(ChessSiteAdapter::PromotionPickerScript('q', 'b'));
+    const std::expected<std::string, CdpError> knightResult = client.EvaluateJs(ChessSiteAdapter::PromotionPickerScript('n', 'b'));
+
+    launcher.Terminate();
+
+    ASSERT_TRUE(queenResult.has_value());
+    ASSERT_TRUE(knightResult.has_value());
+
+    const std::optional<SquarePoint> queenTarget = ChessSiteAdapter::ParsePromotionTarget(*queenResult);
+    const std::optional<SquarePoint> knightTarget = ChessSiteAdapter::ParsePromotionTarget(*knightResult);
+
+    ASSERT_TRUE(queenTarget.has_value());
+    ASSERT_TRUE(knightTarget.has_value());
+
+    // The fixture stacks the four options vertically at 0%/12.5%/25%/37.5% top offsets, so the
+    // queen and knight options land at different Y positions - a same/wrong answer for both
+    // would mean the selector isn't actually distinguishing between options.
+    EXPECT_NE(queenTarget->Y, knightTarget->Y);
+}

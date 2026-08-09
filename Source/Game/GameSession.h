@@ -6,6 +6,7 @@
 #include "Browser/CdpClient.h"
 #include "Browser/ChessSiteAdapter.h"
 #include "Chess/ChessRules.h"
+#include "Chess/PolyglotBook.h"
 #include "Engine/EngineTypes.h"
 
 #include <atomic>
@@ -165,6 +166,24 @@ public:
     void SetPremoveEnabled(bool enabled);
     [[nodiscard]] bool IsPremoveEnabled() const;
 
+    // Reads and parses path as a Polyglot opening book (see PolyglotBook), replacing whatever
+    // was previously loaded. Returns false (book left empty, as if never loaded) on any I/O or
+    // format failure - logs the reason. Call from the UI thread only.
+    bool LoadOpeningBook(const std::filesystem::path& path);
+    [[nodiscard]] bool HasOpeningBookLoaded() const;
+
+    // When enabled (and a book is loaded), RequestEngineMove() plays a book move for the
+    // tracked player's own turn instead of searching, whenever the current position has one -
+    // see the top of RequestEngineMove()'s definition. Falls back to normal engine search the
+    // instant the position leaves the book (or was never in it), with no separate setting
+    // needed. Call from the UI thread only.
+    void SetOpeningBookEnabled(bool enabled);
+    [[nodiscard]] bool IsOpeningBookEnabled() const;
+
+    // How a book move is picked when the current position has more than one entry - see
+    // PolyglotBook::SelectionMode. Call from the UI thread only.
+    void SetBookSelectionMode(PolyglotBook::SelectionMode mode);
+
     // Average per-move accuracy for the tracked player so far this game, 0-100 - nullopt
     // until at least one of their moves has been scored. For each of their moves, this
     // compares the engine's evaluation of the position right before the move (the best
@@ -185,6 +204,13 @@ private:
     // the full configured Elo/Blitz search length. See SetPremoveEnabled's comment.
     void RequestEngineMove(bool quickVerify = false);
     void PlayMoveOnBoard(std::string_view uciMove);
+
+    // Queues uciMove for Tick() to play, with a delay freshly rolled from m_MinMoveDelayMs/
+    // m_MaxMoveDelayMs (see SetMoveDelay) - the autoplay-gated tail shared by OnEngineBestMove
+    // (an engine result for our own turn) and RequestEngineMove (a book hit for our own turn).
+    // No-op if autoplay is off. Callable from either thread (UI or the engine reader thread),
+    // like the mutex it uses.
+    void QueueAutoplayMove(const std::string& uciMove);
 
     // Checks lastAppliedMove (the most recent move Poll() just applied) against any pending
     // premove candidate; plays the response and returns true on a hit. Returns false (nothing
@@ -262,6 +288,13 @@ private:
     bool m_BlitzMode = false;
 
     std::atomic<bool> m_PremoveEnabled{false};
+
+    // UI-thread-only, like m_BlitzMode (only ever set from ControlsPanel, only ever read from
+    // RequestEngineMove - both UI-thread-only). m_OpeningBook itself is likewise only ever
+    // touched from the UI thread (LoadOpeningBook/RequestEngineMove).
+    PolyglotBook m_OpeningBook;
+    bool m_OpeningBookEnabled = false;
+    PolyglotBook::SelectionMode m_BookSelectionMode = PolyglotBook::SelectionMode::WeightedRandom;
 
     // ExpectedOwnMove/PredictedOpponentMove/OurResponse are PV[0]/PV[1]/PV[2] from our own
     // last search (see OnEngineInfo) - "we expect to play this; if the opponent then plays

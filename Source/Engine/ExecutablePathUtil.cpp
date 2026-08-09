@@ -84,4 +84,24 @@ std::optional<std::filesystem::path> PromptForEnginePath()
         // Error occurred
         return std::nullopt;
 }
+
+std::optional<std::filesystem::path> PromptForBookPath()
+{
+    nfdchar_t* outPath = nullptr;
+    nfdfilteritem_t filterItem = {"Polyglot Book", "bin"};
+
+    const nfdresult_t result = NFD_OpenDialog(&outPath, &filterItem, 1, nullptr);
+
+    if (result == NFD_OKAY)
+    {
+        std::filesystem::path path(outPath);
+        free(outPath);
+        return path;
+    }
+    else if (result == NFD_CANCEL)
+        return std::nullopt;
+    else
+        // Error occurred
+        return std::nullopt;
+}
 }  // namespace ExecutablePathUtil

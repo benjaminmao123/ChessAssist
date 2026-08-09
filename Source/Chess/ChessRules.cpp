@@ -272,6 +272,7 @@ void ChessRules::Reset()
 
     m_SideToMove = PieceColor::White;
     m_EnPassantTarget.reset();
+    m_Rights = CastlingRights{};
 }
 
 std::optional<std::string> ChessRules::ApplyCastle(bool kingside)
@@ -295,6 +296,12 @@ std::optional<std::string> ChessRules::ApplyCastle(bool kingside)
     m_Board[rookTo] = rook;
 
     m_EnPassantTarget.reset();
+
+    if (m_SideToMove == PieceColor::White)
+        m_Rights.WhiteKingside = m_Rights.WhiteQueenside = false;
+    else
+        m_Rights.BlackKingside = m_Rights.BlackQueenside = false;
+
     m_SideToMove = Opposite(m_SideToMove);
 
     return SquareToAlgebraic(kingFrom) + SquareToAlgebraic(kingTo);
@@ -391,6 +398,28 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
 
     ApplyMoveOnBoard(m_Board, source, destIndex, parsed->Promotion, enPassantCaptureSquare);
 
+    // Castling-rights bookkeeping (has-moved only, per the header comment on
+    // GetCastlingRights) - a king move forfeits both rights for its side; a rook's home square
+    // being either vacated (it moved) or landed on (it was just captured there, since the
+    // candidate search above already rejects landing on a same-color piece) forfeits that one
+    // right. Checked unconditionally rather than only for King/Rook movers since destIndex can
+    // be a rook's home square regardless of which piece type captured it there.
+    if (parsed->Type == PieceType::King)
+    {
+        if (m_SideToMove == PieceColor::White)
+            m_Rights.WhiteKingside = m_Rights.WhiteQueenside = false;
+        else
+            m_Rights.BlackKingside = m_Rights.BlackQueenside = false;
+    }
+    if (source == SquareIndex(0, 0) || destIndex == SquareIndex(0, 0))
+        m_Rights.WhiteQueenside = false;
+    if (source == SquareIndex(7, 0) || destIndex == SquareIndex(7, 0))
+        m_Rights.WhiteKingside = false;
+    if (source == SquareIndex(0, 7) || destIndex == SquareIndex(0, 7))
+        m_Rights.BlackQueenside = false;
+    if (source == SquareIndex(7, 7) || destIndex == SquareIndex(7, 7))
+        m_Rights.BlackKingside = false;
+
     m_EnPassantTarget.reset();
     if (parsed->Type == PieceType::Pawn && std::abs(destIndex / 8 - source / 8) == 2)
         m_EnPassantTarget = SquareIndex(parsed->DestFile, (source / 8 + destIndex / 8) / 2);
@@ -412,6 +441,16 @@ PieceColor ChessRules::GetSideToMove() const
 const BoardState& ChessRules::GetBoard() const
 {
     return m_Board;
+}
+
+CastlingRights ChessRules::GetCastlingRights() const
+{
+    return m_Rights;
+}
+
+std::optional<int> ChessRules::GetEnPassantTarget() const
+{
+    return m_EnPassantTarget;
 }
 
 std::optional<int> ChessRules::CheckedKingSquare() const

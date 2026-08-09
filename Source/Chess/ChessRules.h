@@ -30,6 +30,19 @@ public:
     [[nodiscard]] PieceColor GetSideToMove() const;
     [[nodiscard]] const BoardState& GetBoard() const;
 
+    // Which castling rights are still available (has-moved bookkeeping only - king/rook moving
+    // and moving back still permanently forfeits the right, matching real chess and standard
+    // FEN semantics). Does NOT mean castling is legal right now (through-check etc. is still
+    // Stockfish's job, same as everywhere else in this class) - see the class comment.
+    [[nodiscard]] CastlingRights GetCastlingRights() const;
+
+    // The square a pawn just double-pushed past, if the last move applied was a double push -
+    // else nullopt. This is the raw "last move was a double push" target (matches FEN's own
+    // pre-refinement field), NOT a guarantee some enemy pawn can actually capture there this
+    // instant - callers that need real capturability (e.g. Polyglot hashing) must check the
+    // board themselves.
+    [[nodiscard]] std::optional<int> GetEnPassantTarget() const;
+
     // Square index of the side-to-move's king if it's currently attacked, else nullopt -
     // reuses the same square-attack helper the pin tie-break above already relies on. Not a
     // full checkmate/stalemate detector (this class deliberately isn't one - see the class
@@ -42,4 +55,5 @@ private:
     BoardState m_Board{};
     PieceColor m_SideToMove = PieceColor::White;
     std::optional<int> m_EnPassantTarget;  // square a pawn just double-pushed past, if any
+    CastlingRights m_Rights;
 };

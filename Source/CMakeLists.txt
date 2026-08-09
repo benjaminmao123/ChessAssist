@@ -26,6 +26,8 @@ set(CHESS_SOURCES
     Chess/ChessTypes.cpp
     Chess/ChessRules.h
     Chess/ChessRules.cpp
+    Chess/PolyglotBook.h
+    Chess/PolyglotBook.cpp
 )
 
 set(BROWSER_SOURCES

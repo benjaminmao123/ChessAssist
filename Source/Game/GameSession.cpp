@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <thread>
 
 namespace
 {
@@ -241,9 +242,13 @@ std::vector<std::string> GameSession::Poll()
         // The page's move-list growing is what normally triggers RequestEngineMove() below -
         // that never fires for a freshly-connected game still at 0 moves (nothing to detect
         // as "new"), so the engine would otherwise never analyze the starting position (and
-        // autoplay would never make an opening move) until *something* changed the move
-        // count first. Seed it here, once, the first time a poll finds the tracker still
-        // empty after connecting.
+        // autoplay would never make an opening move) until *something* changed the move count
+        // first. Seed it here, once, the first time a poll finds the tracker still empty after
+        // connecting (ConnectToSite() clears m_InitialMoveRequested but can't itself know
+        // whether the just-opened game already has moves, so it can't seed the request
+        // directly). ResetToFreshGame below seeds its own zero-move case immediately rather
+        // than relying on this branch catching a subsequent tick - this one's now purely the
+        // fresh-connection fallback.
         if (!m_InitialMoveRequested && m_Tracker.GetMoves().empty())
         {
             LOG_INFO("Poll: still at the starting position after connecting - requesting an initial engine move");
@@ -264,15 +269,6 @@ std::vector<std::string> GameSession::Poll()
         m_Rules.Reset();
         m_Tracker.Reset();
         m_Desynced = false;
-        // Same reason ConnectToSite() clears this: if the reset game is still at 0 moves (the
-        // common case - this poll tick usually catches the reset before either side has
-        // moved), the loop below won't find any moves to apply and so won't call
-        // RequestEngineMove() either, leaving the *next* tick's NoChange branch as the only
-        // thing that can seed an initial request for the new game - which it won't, if this
-        // flag is still true from the game that just ended. Without this, autoplay and the
-        // engine panel silently keep showing the previous game's last position/move/eval
-        // until something (a bot's first move, or the user toggling autoplay off and on)
-        // happens to trigger a fresh request.
         m_InitialMoveRequested = false;
         ResetAccuracy();
         break;
@@ -297,8 +293,26 @@ std::vector<std::string> GameSession::Poll()
         newMoves.push_back(*uci);
     }
 
-    if (!newMoves.empty() && !TryPremove(newMoves.back()))
+    if (!newMoves.empty())
+    {
+        if (!TryPremove(newMoves.back()))
+            RequestEngineMove(ShouldQuickVerify());
+    }
+    else if (diff.Kind == MoveListDiffKind::ResetToFreshGame && m_Tracker.GetMoves().empty())
+    {
+        // A reset straight to 0 moves (the common case - this poll tick usually catches the
+        // reset before either side has moved) has no opening move for the loop above to have
+        // applied, so newMoves is empty and nothing above requested a move for the new game.
+        // Seed it here, immediately, rather than deferring to the NoChange branch's own
+        // "still empty after connecting" fallback on some *later* tick: that fallback only
+        // fires on a tick that lands cleanly on NoChange, which isn't guaranteed to be the
+        // very next one (a transiently null/errored extraction, or another diff classification
+        // while the page is still settling, can both intervene) - until it does, autoplay and
+        // the engine panel silently keep showing the previous game's last position/move/eval,
+        // exactly the "have to retoggle autoplay" symptom this was seeding around.
+        LOG_INFO("Poll: fresh game has no moves yet - requesting an initial engine move");
         RequestEngineMove(ShouldQuickVerify());
+    }
 
     return newMoves;
 }
@@ -335,6 +349,19 @@ void GameSession::SetMoveDelay(int minMs, int maxMs)
 {
     m_MinMoveDelayMs = minMs;
     m_MaxMoveDelayMs = std::max(minMs, maxMs);
+}
+
+void GameSession::QueueAutoplayMove(const std::string& uciMove)
+{
+    if (!m_AutoplayEnabled.load())
+        return;
+
+    const int delayMs = RandomMoveDelayMs(m_MinMoveDelayMs.load(), m_MaxMoveDelayMs.load());
+
+    LOG_INFO("QueueAutoplayMove: queuing autoplay of '{}' (playing in {} ms)", uciMove, delayMs);
+    std::scoped_lock lock(m_AutoMoveMutex);
+    m_PendingAutoMove = uciMove;
+    m_AutoMoveReadyTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(delayMs);
 }
 
 void GameSession::PlayBestMoveNow()
@@ -406,12 +433,7 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
         return;
     }
 
-    const int delayMs = RandomMoveDelayMs(m_MinMoveDelayMs.load(), m_MaxMoveDelayMs.load());
-
-    LOG_INFO("OnEngineBestMove: queuing autoplay of '{}' (playing in {} ms)", result.BestMove, delayMs);
-    std::scoped_lock lock(m_AutoMoveMutex);
-    m_PendingAutoMove = result.BestMove;
-    m_AutoMoveReadyTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(delayMs);
+    QueueAutoplayMove(result.BestMove);
 }
 
 void GameSession::OnEngineInfo(const SearchInfo& info)
@@ -536,6 +558,31 @@ bool GameSession::IsPremoveEnabled() const
     return m_PremoveEnabled.load();
 }
 
+bool GameSession::LoadOpeningBook(const std::filesystem::path& path)
+{
+    return m_OpeningBook.Load(path);
+}
+
+bool GameSession::HasOpeningBookLoaded() const
+{
+    return m_OpeningBook.IsLoaded();
+}
+
+void GameSession::SetOpeningBookEnabled(bool enabled)
+{
+    m_OpeningBookEnabled = enabled;
+}
+
+bool GameSession::IsOpeningBookEnabled() const
+{
+    return m_OpeningBookEnabled;
+}
+
+void GameSession::SetBookSelectionMode(PolyglotBook::SelectionMode mode)
+{
+    m_BookSelectionMode = mode;
+}
+
 bool GameSession::TryPremove(const std::string& lastAppliedMove)
 {
     if (!m_PremoveEnabled.load() || !m_AutoplayEnabled.load())
@@ -613,6 +660,29 @@ void GameSession::RequestEngineMove(bool quickVerify)
     m_RequestedForSide = m_Tracker.GetSideToMove();
     m_InitialMoveRequested = true;
 
+    // Opening book: only ever intercepts a request for the tracked player's own turn - a
+    // request made to (informationally) evaluate the opponent's position, or to score the
+    // tracked player's last move for accuracy tracking, always goes to the engine as before,
+    // so neither of those is affected by the book being on. A book hit skips the engine
+    // entirely for this move and publishes it exactly the way OnEngineBestMove publishes an
+    // engine result for our own turn (see QueueAutoplayMove) - the on-board arrow and manual
+    // "play now" hotkey both keep working, and the artificial wait-time delay still applies.
+    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    if (m_RequestedForSide.load() == myColor && m_OpeningBookEnabled && m_OpeningBook.IsLoaded())
+    {
+        const std::optional<std::string> bookMove = m_OpeningBook.FindMove(m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget(), m_BookSelectionMode);
+        if (bookMove)
+        {
+            LOG_INFO("RequestEngineMove: playing book move '{}' for {} after [{}] - skipping engine search", *bookMove, SideName(myColor), JoinStrings(m_Tracker.GetMoves()));
+            {
+                std::scoped_lock lock(m_SuggestedMoveMutex);
+                m_SuggestedMove = *bookMove;
+            }
+            QueueAutoplayMove(*bookMove);
+            return;
+        }
+    }
+
     LOG_INFO("RequestEngineMove: requesting a move for {} after [{}]{}", SideName(m_RequestedForSide.load()), JoinStrings(m_Tracker.GetMoves()), quickVerify ? " (premove quick-verify)" : "");
 
     (void)m_Controller->FindBestMoveAsync(m_Tracker.GetBaseFen(), limits, m_Tracker.GetMoves());
@@ -663,14 +733,31 @@ void GameSession::PlayMoveOnBoard(std::string_view uciMove)
     // is always White promoting, rank 1 always Black, regardless of which side is being
     // tracked/which way the board is oriented.
     const char promotingColor = (uciMove[3] == '8') ? 'w' : 'b';
-    const std::expected<std::string, CdpError> promoResult = m_CdpClient.EvaluateJs(ChessSiteAdapter::PromotionPickerScript(promotionLetter, promotingColor));
-    if (!promoResult)
+    const std::string promotionScript = ChessSiteAdapter::PromotionPickerScript(promotionLetter, promotingColor);
+
+    // The picker isn't necessarily in the DOM the instant the drag's mouseup fires - some
+    // sites (lichess included) insert it a render pass or two later rather than synchronously
+    // in the drop handler. Retry briefly instead of giving up on the very first empty result,
+    // which was silently leaving every promotion for the user to finish by hand even when the
+    // picker script itself was perfectly capable of finding it a moment later. A genuine CDP/
+    // JS failure (as opposed to "ran fine, nothing there yet") still fails fast below rather
+    // than retrying pointlessly.
+    std::optional<SquarePoint> target;
+    for (int attempt = 0; attempt < 10 && !target; ++attempt)
     {
-        LOG_WARN("PlayMoveOnBoard: promotion picker lookup failed for '{}': {} - finish the promotion manually", uciMove, promoResult.error().Message);
-        return;
+        if (attempt > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        const std::expected<std::string, CdpError> promoResult = m_CdpClient.EvaluateJs(promotionScript);
+        if (!promoResult)
+        {
+            LOG_WARN("PlayMoveOnBoard: promotion picker lookup failed for '{}': {} - finish the promotion manually", uciMove, promoResult.error().Message);
+            return;
+        }
+
+        target = ChessSiteAdapter::ParsePromotionTarget(*promoResult);
     }
 
-    const std::optional<SquarePoint> target = ChessSiteAdapter::ParsePromotionTarget(*promoResult);
     if (!target)
     {
         LOG_WARN("PlayMoveOnBoard: couldn't find a promotion picker option for '{}' - finish the promotion manually", uciMove);

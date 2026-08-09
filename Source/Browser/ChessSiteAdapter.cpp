@@ -161,6 +161,24 @@ constexpr const char* kPromotionPickerScriptTemplate = R"JS(
         }
     }
 
+    // lichess's promotion picker: a '#promotion-choice' element (present in the DOM only
+    // while a promotion is pending) holding one custom <square> per option, each wrapping a
+    // custom <piece class="<type> <color>"> - e.g. class="queen black" - full type/color
+    // words rather than chess.com's abbreviated single-letter classes, and an id rather than
+    // a class on the container, so it needs its own exact match: the generic heuristic below
+    // only looks at data-piece/data-figurine/aria-label attributes and class names containing
+    // "promotion"/"promote", none of which this markup has anywhere.
+    const promotionChoice = document.getElementById('promotion-choice');
+    if (promotionChoice) {
+        const colorName = { w: 'white', b: 'black' }['%PROMOTION_COLOR%'];
+        const exactPiece = promotionChoice.querySelector('piece.' + wanted + '.' + colorName);
+        if (exactPiece) {
+            const rect = exactPiece.getBoundingClientRect();
+            if (rect.width > 4 && rect.height > 4)
+                return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }
+    }
+
     const candidates = document.querySelectorAll('[data-piece], [data-figurine], [aria-label], [class*="promotion"] *, [class*="promote"] *');
     for (const el of candidates) {
         const hint = ((el.getAttribute('data-piece') || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.className || '')).toLowerCase();

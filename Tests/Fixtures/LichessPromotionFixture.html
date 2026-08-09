@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>ChessAssist test fixture - lichess promotion picker</title></head>
+<body>
+<!-- Real markup captured from a live lichess promotion picker - exercises
+     ChessSiteAdapter::PromotionPickerScript's exact-match selector: a '#promotion-choice'
+     element containing one <square> per option, each wrapping a
+     <piece class="<type> <color>"> (e.g. class="queen black"). Explicit width/height on each
+     piece since <square>/<piece> are unknown custom elements (zero intrinsic size by
+     default), which the picker script's own size sanity check (>4px) would then reject. -->
+<div id="promotion-choice" class="top">
+  <square style="top: 0%;left: 25%"><piece class="queen black" style="display:block;width:60px;height:60px;"></piece></square>
+  <square style="top: 12.5%;left: 25%"><piece class="knight black" style="display:block;width:60px;height:60px;"></piece></square>
+  <square style="top: 25%;left: 25%"><piece class="rook black" style="display:block;width:60px;height:60px;"></piece></square>
+  <square style="top: 37.5%;left: 25%"><piece class="bishop black" style="display:block;width:60px;height:60px;"></piece></square>
+</div>
+</body>
+</html>

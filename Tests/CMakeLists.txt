@@ -4,6 +4,7 @@ add_executable(ChessAssistTests
     UCIProtocolTests.cpp
     EngineControllerTests.cpp
     ChessRulesTests.cpp
+    PolyglotBookTests.cpp
     GameSessionTests.cpp
     BrowserPipelineTests.cpp
 )

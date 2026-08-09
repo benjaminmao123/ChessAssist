@@ -1,5 +1,6 @@
 #include "ControlsPanel.h"
 
+#include "Chess/PolyglotBook.h"
 #include "Engine/EngineController.h"
 #include "Engine/ExecutablePathUtil.h"
 #include "Game/GameSession.h"
@@ -24,6 +25,10 @@ constexpr const char* kSiteNames[] = {"Chess.com", "Lichess"};
 // rather than exhaustive so the dropdown stays a quick pick, not a full key-capture UI.
 constexpr const char* kHotkeyNames[] = {"Space", "Enter", "Tab", "F1", "F2", "F3", "F4"};
 constexpr ImGuiKey kHotkeyKeys[] = {ImGuiKey_Space, ImGuiKey_Enter, ImGuiKey_Tab, ImGuiKey_F1, ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4};
+
+// Index 0/1 must match GameSession::PolyglotBook::SelectionMode's HighestWeight/WeightedRandom
+// ordering - see the combo's on-change handler in Draw().
+constexpr const char* kBookSelectionModeNames[] = {"Always best", "Weighted random"};
 }  // namespace
 
 ControlsPanel::ControlsPanel(EngineController& controller, GameSession& gameSession)
@@ -105,6 +110,12 @@ void ControlsPanel::LoadSettings()
         m_MoveDelayMaxMs = std::clamp(ini.Get<int>("Autoplay", "MoveDelayMaxMs", static_cast<int>(m_MoveDelayMaxMs)), 0, 10000);
 
         m_PlayMoveHotkeyIndex = std::clamp(ini.Get<int>("ManualPlay", "HotkeyIndex", static_cast<int>(m_PlayMoveHotkeyIndex)), 0, IM_ARRAYSIZE(kHotkeyNames) - 1);
+
+        const std::string bookPath = ini.Get<std::string>("OpeningBook", "Path", "");
+        if (!bookPath.empty())
+            std::snprintf(m_BookPathBuffer.data(), m_BookPathBuffer.size(), "%s", bookPath.c_str());
+        m_OpeningBookEnabled = ini.Get<bool>("OpeningBook", "Enabled", static_cast<bool>(m_OpeningBookEnabled));
+        m_BookSelectionModeIndex = std::clamp(ini.Get<int>("OpeningBook", "SelectionMode", static_cast<int>(m_BookSelectionModeIndex)), 0, IM_ARRAYSIZE(kBookSelectionModeNames) - 1);
     }
     catch (const std::exception& e)
     {
@@ -116,11 +127,17 @@ void ControlsPanel::LoadSettings()
     // handler would in Draw() - the Elo/BlitzMode/EngineController half of this (UCI_Elo etc.)
     // is deliberately NOT done here: the engine hasn't started yet at construction time (see
     // ApplyEloTarget's SetOption no-op comment), so App's startup RestartEngine() call, which
-    // ends with its own ApplyEloTarget(), covers that once the engine actually exists.
+    // ends with its own ApplyEloTarget(), covers that once the engine actually exists. Loading
+    // the book, unlike starting the engine, is pure file parsing with no process dependency,
+    // so (unlike Elo) it can happen right here rather than waiting for RestartEngine().
     m_GameSession->SetBlitzMode(m_BlitzMode);
     m_GameSession->SetAutoplayEnabled(m_AutoplayEnabled);
     m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
     m_GameSession->SetMoveDelay(m_MoveDelayMs, m_RandomizeMoveDelay ? m_MoveDelayMaxMs : m_MoveDelayMs);
+    m_GameSession->SetBookSelectionMode(m_BookSelectionModeIndex == 0 ? PolyglotBook::SelectionMode::HighestWeight : PolyglotBook::SelectionMode::WeightedRandom);
+    if (m_BookPathBuffer[0] != '\0')
+        m_GameSession->LoadOpeningBook(m_BookPathBuffer.data());
+    m_GameSession->SetOpeningBookEnabled(m_OpeningBookEnabled);
 
     LOG_INFO("LoadSettings: restored settings from {}", path);
 }
@@ -139,6 +156,9 @@ void ControlsPanel::SaveSettings() const
     ini.InsertEntry("Autoplay", "MoveDelayMs", m_MoveDelayMs);
     ini.InsertEntry("Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
     ini.InsertEntry("ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
+    ini.InsertEntry("OpeningBook", "Enabled", m_OpeningBookEnabled);
+    ini.InsertEntry("OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
+    ini.InsertEntry("OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
 
     const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
     try
@@ -195,6 +215,41 @@ void ControlsPanel::Draw()
     // for "make it fast" vs. "make it weak".
     if (ImGuiUtils::CheckboxTextWrapped("##BlitzMode", &m_BlitzMode, "Blitz mode (fast, shallow searches)"))
         m_GameSession->SetBlitzMode(m_BlitzMode);
+
+    ImGui::SeparatorText("Opening Book");
+
+    // Plays moves straight from a loaded Polyglot book, skipping engine search entirely,
+    // whenever the current position has an entry - see GameSession::RequestEngineMove's book
+    // check. Falls back to normal search the instant the position leaves the book, so nothing
+    // else here needs to know or care whether a given move came from the book or the engine.
+    if (ImGuiUtils::CheckboxTextWrapped("##OpeningBookEnabled", &m_OpeningBookEnabled, "Use opening book"))
+        m_GameSession->SetOpeningBookEnabled(m_OpeningBookEnabled);
+
+    if (ImGui::Button("...##BookPath"))
+    {
+        const std::optional<std::filesystem::path> newPath = ExecutablePathUtil::PromptForBookPath();
+        if (newPath)
+            std::snprintf(m_BookPathBuffer.data(), m_BookPathBuffer.size(), "%s", newPath->string().c_str());
+    }
+    ImGui::SameLine();
+    ImGui::InputText("Path##BookPath", m_BookPathBuffer.data(), m_BookPathBuffer.size());
+    if (ImGui::Button("Load Book"))
+    {
+        if (m_GameSession->LoadOpeningBook(m_BookPathBuffer.data()))
+            LOG_INFO("Book loaded");
+        else
+            LOG_ERROR("Failed to load book - see Log.");
+    }
+
+    ImGui::TextWrapped("Move choice");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::Combo("##BookSelectionMode", &m_BookSelectionModeIndex, kBookSelectionModeNames, IM_ARRAYSIZE(kBookSelectionModeNames)))
+        m_GameSession->SetBookSelectionMode(m_BookSelectionModeIndex == 0 ? PolyglotBook::SelectionMode::HighestWeight : PolyglotBook::SelectionMode::WeightedRandom);
+
+    if (m_GameSession->HasOpeningBookLoaded())
+        ImGuiUtils::TextColorWrapped(ImGui::GetStyleColorVec4(ImGuiCol_Text), "Book loaded");
+    else
+        ImGuiUtils::TextColorWrapped(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "No book loaded");
 
     ImGui::SeparatorText("Connection");
 

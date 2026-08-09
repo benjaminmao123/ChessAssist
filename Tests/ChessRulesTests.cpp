@@ -241,6 +241,106 @@ TEST(ChessRulesTest, HandlesBlackQueensideCastle)
     EXPECT_EQ(*move, "e8c8");
 }
 
+TEST(ChessRulesTest, InitialCastlingRightsAllTrue)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    const CastlingRights rights = rules.GetCastlingRights();
+    EXPECT_TRUE(rights.WhiteKingside);
+    EXPECT_TRUE(rights.WhiteQueenside);
+    EXPECT_TRUE(rights.BlackKingside);
+    EXPECT_TRUE(rights.BlackQueenside);
+}
+
+TEST(ChessRulesTest, KingMoveForfeitsBothCastlingRightsForThatSide)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("e4"), "e2e4");
+    ASSERT_EQ(rules.ApplySanMove("e5"), "e7e5");
+    ASSERT_EQ(rules.ApplySanMove("Ke2"), "e1e2");
+    ASSERT_EQ(rules.ApplySanMove("Nc6"), "b8c6");
+    ASSERT_EQ(rules.ApplySanMove("Ke1"), "e2e1");  // moving back doesn't restore the rights
+
+    const CastlingRights rights = rules.GetCastlingRights();
+    EXPECT_FALSE(rights.WhiteKingside);
+    EXPECT_FALSE(rights.WhiteQueenside);
+    EXPECT_TRUE(rights.BlackKingside);
+    EXPECT_TRUE(rights.BlackQueenside);
+}
+
+TEST(ChessRulesTest, RookMoveForfeitsOnlyThatSideCastlingRight)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("a4"), "a2a4");
+    ASSERT_EQ(rules.ApplySanMove("e5"), "e7e5");
+    ASSERT_EQ(rules.ApplySanMove("Ra3"), "a1a3");
+
+    const CastlingRights rights = rules.GetCastlingRights();
+    EXPECT_TRUE(rights.WhiteKingside);
+    EXPECT_FALSE(rights.WhiteQueenside);
+    EXPECT_TRUE(rights.BlackKingside);
+    EXPECT_TRUE(rights.BlackQueenside);
+}
+
+TEST(ChessRulesTest, CastlingForfeitsBothRightsForThatSide)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("e4"), "e2e4");
+    ASSERT_EQ(rules.ApplySanMove("e5"), "e7e5");
+    ASSERT_EQ(rules.ApplySanMove("Nf3"), "g1f3");
+    ASSERT_EQ(rules.ApplySanMove("Nc6"), "b8c6");
+    ASSERT_EQ(rules.ApplySanMove("Bc4"), "f1c4");
+    ASSERT_EQ(rules.ApplySanMove("Bc5"), "f8c5");
+    ASSERT_EQ(rules.ApplySanMove("O-O"), "e1g1");
+
+    const CastlingRights rights = rules.GetCastlingRights();
+    EXPECT_FALSE(rights.WhiteKingside);
+    EXPECT_FALSE(rights.WhiteQueenside);
+    EXPECT_TRUE(rights.BlackKingside);
+    EXPECT_TRUE(rights.BlackQueenside);
+}
+
+TEST(ChessRulesTest, RookCapturedOnHomeSquareForfeitsThatRight)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("g3"), "g2g3");
+    ASSERT_EQ(rules.ApplySanMove("Na6"), "b8a6");
+    ASSERT_EQ(rules.ApplySanMove("g4"), "g3g4");
+    ASSERT_EQ(rules.ApplySanMove("Nb4"), "a6b4");
+    ASSERT_EQ(rules.ApplySanMove("h3"), "h2h3");
+    ASSERT_EQ(rules.ApplySanMove("Nxc2"), "b4c2");
+    ASSERT_EQ(rules.ApplySanMove("h4"), "h3h4");
+    ASSERT_EQ(rules.ApplySanMove("Nxa1"), "c2a1");  // captures White's still-unmoved a1 rook
+
+    const CastlingRights rights = rules.GetCastlingRights();
+    EXPECT_TRUE(rights.WhiteKingside);
+    EXPECT_FALSE(rights.WhiteQueenside);
+}
+
+TEST(ChessRulesTest, EnPassantTargetOnlyPresentRightAfterADoublePush)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    EXPECT_FALSE(rules.GetEnPassantTarget().has_value());
+
+    ASSERT_EQ(rules.ApplySanMove("e4"), "e2e4");
+    ASSERT_TRUE(rules.GetEnPassantTarget().has_value());
+    EXPECT_EQ(*rules.GetEnPassantTarget(), SquareIndex(4, 2));  // e3 - the skipped-over square
+
+    ASSERT_EQ(rules.ApplySanMove("Nc6"), "b8c6");  // any non-double-push move clears it
+    EXPECT_FALSE(rules.GetEnPassantTarget().has_value());
+}
+
 TEST(ChessRulesTest, PinTieBreakExcludesPinnedPieceFromAmbiguousMove)
 {
     ChessRules rules;
