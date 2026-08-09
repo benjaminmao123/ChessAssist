@@ -67,10 +67,12 @@ std::string SquareCenterScript(std::string_view fromSquare, std::string_view toS
 std::optional<SquareCenters> ParseSquareCenters(std::string_view jsonResult);
 
 // Best-effort: looks for a currently-visible promotion-piece picker option matching
-// promotionLetter ('q', 'r', 'b', or 'n') and returns its viewport-relative CSS pixel center,
-// or nullopt if none is found (e.g. the site hasn't opened a picker, or its DOM doesn't match
-// the heuristics here) - callers should log and leave the promotion for the user to finish
-// manually rather than guessing.
-std::string PromotionPickerScript(char promotionLetter);
+// promotionLetter ('q', 'r', 'b', or 'n') for the promoting side promotingColor ('w' or 'b' -
+// always the tracked player's own color, since PlayMoveOnBoard/this picker only ever fires for
+// their own moves) and returns its viewport-relative CSS pixel center, or nullopt if none is
+// found (e.g. the site hasn't opened a picker, or its DOM doesn't match the heuristics here) -
+// callers should log and leave the promotion for the user to finish manually rather than
+// guessing.
+std::string PromotionPickerScript(char promotionLetter, char promotingColor);
 std::optional<SquarePoint> ParsePromotionTarget(std::string_view jsonResult);
 }  // namespace ChessSiteAdapter

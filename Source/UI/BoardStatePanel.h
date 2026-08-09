@@ -38,8 +38,10 @@ public:
     // GameSession::IsBlackAtBottom) instead of always assuming White-at-bottom. suggestedMove,
     // if present, is the engine's UCI suggestion for the tracked player's own turn right now
     // (see GameSession::GetSuggestedMove()) - drawn as an arrow from the piece to move to
-    // where it should go, plus a highlight on both squares.
-    void Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove);
+    // where it should go, plus a highlight on both squares. accuracyPercent (see
+    // GameSession::GetAccuracyPercent()) is shown as text alongside the engine info below the
+    // board, nullopt drawing a placeholder rather than being omitted.
+    void Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<float> accuracyPercent);
 
 private:
     EngineInfoPanel* m_EnginePanel = nullptr;

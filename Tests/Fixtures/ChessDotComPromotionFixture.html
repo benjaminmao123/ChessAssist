@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>ChessAssist test fixture - chess.com promotion picker</title></head>
+<body>
+<!-- Real markup captured from a live chess.com promotion picker - exercises
+     ChessSiteAdapter::PromotionPickerScript's exact-match selector: a
+     '.promotion-window--visible' containing one '.promotion-piece' per option, each with a
+     second class named '<color><type>' (e.g. "bq" = black queen). Explicit width/height on
+     each option since an empty block element otherwise has zero height, which the picker
+     script's own size sanity check (>4px) would then reject. -->
+<div class="promotion-window top promotion-window--visible" style="transform: translateX(700%);">
+  <i class="close-button icon-font-chess x"></i>
+  <div class="promotion-piece bb" style="display:block;width:60px;height:60px;"></div>
+  <div class="promotion-piece bn" style="display:block;width:60px;height:60px;"></div>
+  <div class="promotion-piece bq" style="display:block;width:60px;height:60px;"></div>
+  <div class="promotion-piece br" style="display:block;width:60px;height:60px;"></div>
+</div>
+</body>
+</html>

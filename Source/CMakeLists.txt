@@ -56,7 +56,7 @@ set(GAME_SOURCES
 add_library(ChessAssistCore STATIC ${ENGINE_SOURCES} ${CHESS_SOURCES} ${BROWSER_SOURCES} ${GAME_SOURCES})
 
 target_include_directories(ChessAssistCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(ChessAssistCore PUBLIC spdlog::spdlog Threads::Threads ixwebsocket::ixwebsocket nlohmann_json::nlohmann_json)
+target_link_libraries(ChessAssistCore PUBLIC spdlog::spdlog Threads::Threads ixwebsocket::ixwebsocket nlohmann_json::nlohmann_json nfd::nfd)
 
 set(UI_SOURCES
     UI/AppWindow.h
@@ -71,6 +71,7 @@ set(UI_SOURCES
     UI/LogPanel.cpp
     UI/ImGuiLogSink.h
     UI/StbImageImpl.cpp
+    UI/ImguiUtils.h
 )
 
 # UI sources are linked only into the ChessAssist executable, not ChessAssistCore - keeps

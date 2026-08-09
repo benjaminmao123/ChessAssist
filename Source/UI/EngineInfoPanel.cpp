@@ -14,6 +14,20 @@ int WhitePerspectiveSign(PieceColor requestedSide)
 {
     return (requestedSide == PieceColor::Black) ? -1 : 1;
 }
+
+// A signed, side-to-move-perspective magnitude for a mate score, suitable for multiplying by
+// WhitePerspectiveSign() to get a White-perspective value. "mate 0" isn't the side to move
+// delivering mate in zero of their own moves (not a coherent state) - it's the engine
+// reporting that this position already IS checkmate against the side to move, the worst
+// possible outcome for them, not the best. That matters here specifically because
+// multiplying the *raw* mate value by sign (as if it were an ordinary signed score) loses all
+// sign information at exactly mate 0 (anything times zero is zero) - so "White checkmated"
+// and "Black checkmated" would otherwise become indistinguishable right when it matters most.
+float SideToMoveMateMagnitude(int mate)
+{
+    constexpr float kMateEquivalentCp = 10000.0f;
+    return mate > 0 ? (kMateEquivalentCp - static_cast<float>(mate)) : (-kMateEquivalentCp - static_cast<float>(mate));
+}
 }  // namespace
 
 void EngineInfoPanel::UpdateInfo(const SearchInfo& info, PieceColor requestedSide)
@@ -51,12 +65,14 @@ void EngineInfoPanel::DrawContents()
         {
             // A raw signed "mate in -3" reads like an error (a move count can't be negative) -
             // unlike the cp score, where a plain signed decimal is normal, name the mating
-            // side explicitly instead of leaning on the sign-convention.
-            const int mateForWhite = sign * (*info->ScoreMate);
-            if (mateForWhite >= 0)
-                ImGui::Text("Score: White mates in %d", mateForWhite);
+            // side explicitly instead of leaning on the sign-convention. Sign resolved via
+            // SideToMoveMateMagnitude, not the raw mate value directly - see its comment on
+            // why mate 0 needs that (sign * 0 is always 0, whoever's mated).
+            const int mateDistance = std::abs(*info->ScoreMate);
+            if (static_cast<float>(sign) * SideToMoveMateMagnitude(*info->ScoreMate) >= 0.0f)
+                ImGui::Text("Score: White mates in %d", mateDistance);
             else
-                ImGui::Text("Score: Black mates in %d", -mateForWhite);
+                ImGui::Text("Score: Black mates in %d", mateDistance);
         }
         else if (info->ScoreCp)
             ImGui::Text("Score: %.2f", sign * static_cast<double>(*info->ScoreCp) / 100.0);
@@ -107,7 +123,7 @@ std::optional<float> EngineInfoPanel::GetWhiteWinFraction() const
     const int sign = WhitePerspectiveSign(infoSide);
 
     if (info->ScoreMate)
-        return (sign * (*info->ScoreMate) >= 0) ? 1.0f : 0.0f;
+        return (static_cast<float>(sign) * SideToMoveMateMagnitude(*info->ScoreMate) >= 0.0f) ? 1.0f : 0.0f;
 
     if (info->ScoreCp)
     {

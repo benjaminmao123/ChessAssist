@@ -89,6 +89,32 @@ std::optional<SiteGameState> ExtractFromFixture(const char* fixtureFilename, Che
     launcher.Terminate();
     return state;
 }
+
+// Launches launcher on fixtureFilename and connects client to it - shared setup for tests
+// (like the promotion-picker one below) that need to run more than one script against the
+// same fixture, unlike ExtractFromFixture above which only ever needs ExtractionScript.
+bool ConnectToFixture(CdpClient& client, BrowserLauncher& launcher, const char* fixtureFilename, std::uint16_t port)
+{
+    const std::filesystem::path fixturePath = ExecutablePathUtil::GetCurrentExecutablePath().parent_path() / "Fixtures" / fixtureFilename;
+    if (!std::filesystem::exists(fixturePath))
+        return false;
+
+    const std::filesystem::path profileDir = std::filesystem::temp_directory_path() / ("ChessAssistTestProfile_" + std::to_string(port));
+    if (!launcher.Launch(port, profileDir, ToFileUrl(fixturePath)))
+        return false;
+
+    std::optional<std::string> webSocketUrl;
+    for (int attempt = 0; attempt < 20 && !webSocketUrl; ++attempt)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        webSocketUrl = CdpClient::FindPageWebSocketUrl(port, fixtureFilename);
+    }
+
+    if (!webSocketUrl)
+        return false;
+
+    return static_cast<bool>(client.Connect(*webSocketUrl));
+}
 }  // namespace
 
 TEST(BrowserPipelineTest, ExtractsChessDotComStyleFixture)
@@ -128,4 +154,35 @@ TEST(BrowserPipelineTest, DetectsFreshGameWithNoMovesYetOnLichess)
     const std::optional<SiteGameState> state = ExtractFromFixture("LichessFreshGameFixture.html", ChessSite::Lichess, 9337);
     ASSERT_TRUE(state.has_value());
     EXPECT_TRUE(state->SanMoves.empty());
+}
+
+TEST(BrowserPipelineTest, LocatesPromotionPieceInRealChessDotComMarkup)
+{
+    // Fixture is real markup captured from a live chess.com promotion picker (see the
+    // fixture file itself) - proves PromotionPickerScript's exact-match selector
+    // ('.promotion-window--visible' > '.promotion-piece.<color><type>') actually works
+    // against it, not just that it parses as valid JS.
+    BrowserLauncher launcher;
+    CdpClient client;
+    ASSERT_TRUE(ConnectToFixture(client, launcher, "ChessDotComPromotionFixture.html", 9338));
+
+    const std::expected<std::string, CdpError> queenResult = client.EvaluateJs(ChessSiteAdapter::PromotionPickerScript('q', 'b'));
+    const std::expected<std::string, CdpError> knightResult = client.EvaluateJs(ChessSiteAdapter::PromotionPickerScript('n', 'b'));
+
+    launcher.Terminate();
+
+    ASSERT_TRUE(queenResult.has_value());
+    ASSERT_TRUE(knightResult.has_value());
+
+    const std::optional<SquarePoint> queenTarget = ChessSiteAdapter::ParsePromotionTarget(*queenResult);
+    const std::optional<SquarePoint> knightTarget = ChessSiteAdapter::ParsePromotionTarget(*knightResult);
+
+    ASSERT_TRUE(queenTarget.has_value());
+    ASSERT_TRUE(knightTarget.has_value());
+
+    // The fixture stacks the four options vertically in bb/bn/bq/br order, so the queen and
+    // knight options land at different Y positions - a same/wrong answer for both would mean
+    // the selector isn't actually distinguishing between options (e.g. always matching the
+    // first '.promotion-piece' it finds regardless of the requested piece).
+    EXPECT_NE(queenTarget->Y, knightTarget->Y);
 }

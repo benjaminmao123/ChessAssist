@@ -15,6 +15,7 @@ find_package(ixwebsocket CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_path(INI_CPP_INCLUDE_DIRS "ini/ini.h")
 find_package(Stb REQUIRED)
+find_package(nfd CONFIG REQUIRED)
 
 add_subdirectory(Vendor)
 add_subdirectory(Source)

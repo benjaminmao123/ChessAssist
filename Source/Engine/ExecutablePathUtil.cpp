@@ -7,6 +7,7 @@
 #endif
 
 #include <vector>
+#include <nfd.h>
 
 namespace ExecutablePathUtil
 {
@@ -57,5 +58,25 @@ std::filesystem::path GetLogsDirectory()
 std::filesystem::path GetBrowserProfileDirectory()
 {
     return GetCurrentExecutablePath().parent_path() / "BrowserProfile";
+}
+
+std::optional<std::filesystem::path> PromptForEnginePath()
+{
+    nfdchar_t* outPath = nullptr;
+    nfdfilteritem_t filterItem = {"Executable Files", "exe"};
+
+    const nfdresult_t result = NFD_OpenDialog(&outPath, &filterItem, 1, nullptr);
+
+    if (result == NFD_OKAY)
+    {
+        std::filesystem::path path(outPath);
+        free(outPath);
+        return path;
+    }
+    else if (result == NFD_CANCEL)
+        return std::nullopt;
+    else
+        // Error occurred
+        return std::nullopt;
 }
 }  // namespace ExecutablePathUtil

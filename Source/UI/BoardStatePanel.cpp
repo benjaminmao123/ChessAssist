@@ -201,7 +201,7 @@ void BoardStatePanel::LoadTextures()
     m_Impl->TexturesLoaded = true;
 }
 
-void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove)
+void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<float> accuracyPercent)
 {
     ImGui::Begin("Tracked Board");
 
@@ -216,12 +216,12 @@ void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const st
 
     // Fills whatever space the panel actually has rather than a fixed pixel size, so the
     // board is as big as the window/dock layout allows instead of floating in a small corner
-    // with wasted space around it. reservedForText approximates the height
-    // EngineInfoPanel::DrawContents() below needs (roughly Depth/Score/Nodes/Nps/PV(up to 2
-    // wrapped lines)/separator/Best move) in units that scale with font size/UI scale rather
-    // than a hardcoded pixel guess.
+    // with wasted space around it. reservedForText approximates the height the text below the
+    // board needs (Accuracy, then EngineInfoPanel::DrawContents()'s Depth/Score/Nodes/Nps/
+    // PV(up to 2 wrapped lines)/separator/Best move) in units that scale with font size/UI
+    // scale rather than a hardcoded pixel guess.
     const ImVec2 available = ImGui::GetContentRegionAvail();
-    const float reservedForText = ImGui::GetTextLineHeightWithSpacing() * 8.0f;
+    const float reservedForText = ImGui::GetTextLineHeightWithSpacing() * 9.0f;
     const float availableForBoardWidth = available.x - kEvalBarWidth - kEvalBarGap;
     const float availableForBoardHeight = available.y - reservedForText;
     const float squareSize = std::max(std::min(availableForBoardWidth, availableForBoardHeight) / 8.0f, kMinSquareSize);
@@ -292,6 +292,11 @@ void BoardStatePanel::Draw(const BoardState& board, bool blackAtBottom, const st
     // everything above was drawn directly via the draw list, not through any layout-owning
     // widget.
     ImGui::Dummy(ImVec2(kEvalBarWidth + kEvalBarGap + boardSize, boardSize));
+
+    if (accuracyPercent)
+        ImGui::Text("Accuracy: %.1f%%", *accuracyPercent);
+    else
+        ImGui::TextDisabled("Accuracy: -");
 
     ImGui::Separator();
     m_EnginePanel->DrawContents();

@@ -6,6 +6,7 @@
 #include "Logging/Log.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -63,6 +64,36 @@ std::string_view SideName(PieceColor color)
 {
     return color == PieceColor::White ? "White" : "Black";
 }
+
+// Approximates a mate score as a large equivalent centipawn value (closer mates are more
+// extreme in either direction) so GetAccuracyPercent's centipawn-loss math can treat mate and
+// plain cp scores uniformly instead of needing a separate case for each.
+float ScoreToCentipawns(const SearchInfo& info)
+{
+    if (info.ScoreMate)
+    {
+        constexpr float kMateEquivalentCp = 10000.0f;
+        const float mate = static_cast<float>(*info.ScoreMate);
+        // "mate 0" isn't the side to move delivering mate in zero of their own moves (not a
+        // coherent state) - it's the engine reporting that this position already IS
+        // checkmate against the side to move (no legal moves, in check), which is the worst
+        // possible outcome for them, not the best. Only mate > 0 is a win for them; mate == 0
+        // must fall into the same "loss" branch as negative (mated-in-N) values, or the move
+        // that actually delivered mate gets scored as a catastrophic blunder instead of a
+        // perfect move once the resulting (now-terminal) position is evaluated.
+        return mate > 0.0f ? (kMateEquivalentCp - mate) : (-kMateEquivalentCp - mate);
+    }
+    return static_cast<float>(info.ScoreCp.value_or(0));
+}
+
+// The same exponential-decay curve chess.com's own accuracy metric is built on: centipawn
+// loss -> a 0-100 per-move score. Clamped since the raw formula can slightly exceed 100 at
+// (near-)zero loss and go negative for very large losses.
+float ScoreLossToAccuracyPercent(float centipawnLoss)
+{
+    const float accuracy = 103.1668f * std::exp(-0.04354f * centipawnLoss) - 3.1669f;
+    return std::clamp(accuracy, 0.0f, 100.0f);
+}
 }  // namespace
 
 GameSession::GameSession(EngineController& controller)
@@ -112,6 +143,7 @@ bool GameSession::ConnectToSite(ChessSite site)
     m_Connected = true;
     m_Desynced = false;
     m_InitialMoveRequested = false;
+    ResetAccuracy();
 
     LOG_INFO("ConnectToSite: connected to {}", ChessSiteAdapter::UrlMatchSubstring(site));
 
@@ -206,6 +238,7 @@ std::vector<std::string> GameSession::Poll()
         // until something (a bot's first move, or the user toggling autoplay off and on)
         // happens to trigger a fresh request.
         m_InitialMoveRequested = false;
+        ResetAccuracy();
         break;
 
     case MoveListDiffKind::Grew:
@@ -276,6 +309,27 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove = result.BestMove;
     }
+    else
+    {
+        // This search analyzed the position right after whatever move the tracked player
+        // actually just made - autoplay's own suggestion, a premove, or a human manually
+        // playing on the site, doesn't matter which. If there's a pending "before" eval from
+        // when it became their turn, this is exactly the "after" search that scores that
+        // move - see GetAccuracyPercent()'s comment. Deliberately independent of
+        // m_AutoplayEnabled below: accuracy tracks whatever actually got played regardless of
+        // who/what played it.
+        std::scoped_lock lock(m_AccuracyMutex);
+        if (m_PendingBeforeMoveEvalCp && m_LatestAfterMoveEvalCp)
+        {
+            const float lossCp = std::max(0.0f, *m_PendingBeforeMoveEvalCp - *m_LatestAfterMoveEvalCp);
+            const float moveAccuracy = ScoreLossToAccuracyPercent(lossCp);
+            m_AccuracySumPercent += moveAccuracy;
+            ++m_AccuracyMoveCount;
+            LOG_INFO("OnEngineBestMove: scored the tracked player's last move at {:.1f}% accuracy (avg {:.1f}% over {} move(s))", moveAccuracy, m_AccuracySumPercent / m_AccuracyMoveCount, m_AccuracyMoveCount);
+        }
+        m_PendingBeforeMoveEvalCp.reset();
+        m_LatestAfterMoveEvalCp.reset();
+    }
 
     if (!m_AutoplayEnabled.load())
     {
@@ -296,11 +350,28 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
 
 void GameSession::OnEngineInfo(const SearchInfo& info)
 {
-    // Same "is this analysis actually for our turn" gating as OnEngineBestMove - a premove
-    // candidate only makes sense when the PV we're reading is our own search, not one
-    // (informational-only) run for the opponent's position.
+    // Same "is this analysis actually for our turn" gating as OnEngineBestMove.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
-    if (m_RequestedForSide.load() != myColor)
+    const bool isOurTurn = m_RequestedForSide.load() == myColor;
+
+    if (info.ScoreCp || info.ScoreMate)
+    {
+        // Accuracy tracking: perspectiveCp is always "how good for the tracked player",
+        // whichever side's turn is actually being searched - continuously overwritten as the
+        // search deepens (same "last update wins" idea as m_PremoveCandidate below), paired
+        // off in OnEngineBestMove once the relevant search completes. See
+        // GetAccuracyPercent()'s comment for the full scheme.
+        const float perspectiveCp = ScoreToCentipawns(info) * (isOurTurn ? 1.0f : -1.0f);
+        std::scoped_lock lock(m_AccuracyMutex);
+        if (isOurTurn)
+            m_PendingBeforeMoveEvalCp = perspectiveCp;
+        else
+            m_LatestAfterMoveEvalCp = perspectiveCp;
+    }
+
+    // A premove candidate only makes sense when the PV we're reading is our own search, not
+    // one (informational-only) run for the opponent's position.
+    if (!isOurTurn)
         return;
 
     // Need at least [ourMove, theirReply, ourNextMove] - shallow early-search PVs that
@@ -342,6 +413,24 @@ std::optional<std::string> GameSession::GetSuggestedMove() const
 {
     std::scoped_lock lock(m_SuggestedMoveMutex);
     return m_SuggestedMove;
+}
+
+std::optional<float> GameSession::GetAccuracyPercent() const
+{
+    std::scoped_lock lock(m_AccuracyMutex);
+    if (m_AccuracyMoveCount == 0)
+        return std::nullopt;
+
+    return static_cast<float>(m_AccuracySumPercent / m_AccuracyMoveCount);
+}
+
+void GameSession::ResetAccuracy()
+{
+    std::scoped_lock lock(m_AccuracyMutex);
+    m_PendingBeforeMoveEvalCp.reset();
+    m_LatestAfterMoveEvalCp.reset();
+    m_AccuracySumPercent = 0.0;
+    m_AccuracyMoveCount = 0;
 }
 
 void GameSession::SetEloTarget(std::optional<int> elo)
@@ -492,7 +581,11 @@ void GameSession::PlayMoveOnBoard(std::string_view uciMove)
     // (see ChessSiteAdapter::PromotionPickerScript) - if it can't find the right option, the
     // picker is left open for the user to finish by hand rather than guessing.
     const char promotionLetter = uciMove[4];
-    const std::expected<std::string, CdpError> promoResult = m_CdpClient.EvaluateJs(ChessSiteAdapter::PromotionPickerScript(promotionLetter));
+    // Promotion only happens on the destination's own back rank - rank 8 (uciMove[3] == '8')
+    // is always White promoting, rank 1 always Black, regardless of which side is being
+    // tracked/which way the board is oriented.
+    const char promotingColor = (uciMove[3] == '8') ? 'w' : 'b';
+    const std::expected<std::string, CdpError> promoResult = m_CdpClient.EvaluateJs(ChessSiteAdapter::PromotionPickerScript(promotionLetter, promotingColor));
     if (!promoResult)
     {
         LOG_WARN("PlayMoveOnBoard: promotion picker lookup failed for '{}': {} - finish the promotion manually", uciMove, promoResult.error().Message);

@@ -144,6 +144,23 @@ constexpr const char* kPromotionPickerScriptTemplate = R"JS(
     const wanted = letterToName['%PROMOTION_LETTER%'];
     if (!wanted) return null;
 
+    // chess.com's live-game promotion picker: a '.promotion-window' (only actually open while
+    // its '--visible' modifier class is present - it stays in the DOM, just off-screen,
+    // the rest of the time) containing one '.promotion-piece' per option, each carrying a
+    // second class named exactly '<color><type>' (e.g. "bq" = black queen) - matches this
+    // app's own UCI color/promotion-letter convention directly, so it's tried first as an
+    // exact match before falling back to the generic heuristic below (for lichess or any
+    // other markup that doesn't use this structure).
+    const exactWindow = document.querySelector('.promotion-window--visible') || document.querySelector('.promotion-window');
+    if (exactWindow) {
+        const exactPiece = exactWindow.querySelector('.promotion-piece.%PROMOTION_COLOR%%PROMOTION_LETTER%');
+        if (exactPiece) {
+            const rect = exactPiece.getBoundingClientRect();
+            if (rect.width > 4 && rect.height > 4)
+                return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }
+    }
+
     const candidates = document.querySelectorAll('[data-piece], [data-figurine], [aria-label], [class*="promotion"] *, [class*="promote"] *');
     for (const el of candidates) {
         const hint = ((el.getAttribute('data-piece') || '') + ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.className || '')).toLowerCase();
@@ -279,12 +296,17 @@ std::optional<SquareCenters> ParseSquareCenters(std::string_view jsonResult)
     return SquareCenters{*from, *to};
 }
 
-std::string PromotionPickerScript(char promotionLetter)
+std::string PromotionPickerScript(char promotionLetter, char promotingColor)
 {
     if (promotionLetter != 'q' && promotionLetter != 'r' && promotionLetter != 'b' && promotionLetter != 'n')
         return "null";
+    if (promotingColor != 'w' && promotingColor != 'b')
+        return "null";
 
-    return ReplaceAll(kPromotionPickerScriptTemplate, "%PROMOTION_LETTER%", std::string_view(&promotionLetter, 1));
+    std::string script = kPromotionPickerScriptTemplate;
+    script = ReplaceAll(std::move(script), "%PROMOTION_LETTER%", std::string_view(&promotionLetter, 1));
+    script = ReplaceAll(std::move(script), "%PROMOTION_COLOR%", std::string_view(&promotingColor, 1));
+    return script;
 }
 
 std::optional<SquarePoint> ParsePromotionTarget(std::string_view jsonResult)

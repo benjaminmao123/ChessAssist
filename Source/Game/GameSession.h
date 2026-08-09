@@ -142,6 +142,19 @@ public:
     void SetPremoveEnabled(bool enabled);
     [[nodiscard]] bool IsPremoveEnabled() const;
 
+    // Average per-move accuracy for the tracked player so far this game, 0-100 - nullopt
+    // until at least one of their moves has been scored. For each of their moves, this
+    // compares the engine's evaluation of the position right before the move (the best
+    // achievable result) against its evaluation of the position right after the move actually
+    // played landed (whether or not it was the suggested move) - the drop between the two
+    // ("centipawn loss") is converted to a 0-100 score per move via the same
+    // exponential-decay curve chess.com's own accuracy metric uses, then averaged across the
+    // game. A move only gets scored if both a "before" and an "after" search actually ran and
+    // completed - a Blitz/premove-skipped position just isn't counted, rather than guessed at.
+    // Resets on ConnectToSite() and on Poll() detecting a fresh game. Safe to call from the UI
+    // thread.
+    [[nodiscard]] std::optional<float> GetAccuracyPercent() const;
+
 private:
     // quickVerify caps this search to a short, fixed time (see kPremoveVerifyMoveTimeMs) -
     // used when premoving is armed but the opponent didn't play the predicted move (or no
@@ -162,6 +175,11 @@ private:
     // normal search path should still stay fast rather than falling back to the full
     // configured search length.
     bool ShouldQuickVerify() const;
+
+    // Clears all accuracy-tracking state - called on ConnectToSite() and on Poll() detecting
+    // a fresh game, so accuracy is scoped to the current game rather than accumulating
+    // indefinitely across separate games in the same session.
+    void ResetAccuracy();
 
     EngineController* m_Controller = nullptr;
     BrowserLauncher m_Launcher;
@@ -222,4 +240,16 @@ private:
     };
     mutable std::mutex m_PremoveMutex;
     std::optional<PremoveCandidate> m_PremoveCandidate;  // guarded by m_PremoveMutex
+
+    // All guarded by m_AccuracyMutex - written by OnEngineInfo/OnEngineBestMove (reader
+    // thread), read by GetAccuracyPercent (UI thread) and reset by ResetAccuracy (UI thread).
+    // m_PendingBeforeMoveEvalCp/m_LatestAfterMoveEvalCp are both in the tracked player's own
+    // perspective (positive = good for them), continuously overwritten ("last update wins",
+    // same pattern as m_SuggestedMove/m_PremoveCandidate) while their respective side's search
+    // is in flight; OnEngineBestMove pairs them off once the opponent-turn search completes.
+    mutable std::mutex m_AccuracyMutex;
+    std::optional<float> m_PendingBeforeMoveEvalCp;
+    std::optional<float> m_LatestAfterMoveEvalCp;
+    double m_AccuracySumPercent = 0.0;
+    int m_AccuracyMoveCount = 0;
 };
