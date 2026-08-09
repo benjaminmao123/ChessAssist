@@ -182,8 +182,26 @@ std::vector<std::string> GameSession::Poll()
     const std::expected<std::string, CdpError> jsResult = m_CdpClient.EvaluateJs(ChessSiteAdapter::ExtractionScript(m_Site));
     if (!jsResult)
     {
-        // Transient - a brief navigation, a page not fully loaded yet, a slow round trip.
-        // Don't tear down the connection over one failed poll tick; just retry next tick.
+        if (!m_CdpClient.IsConnected())
+        {
+            // The browser (or just the tab being watched) closed out from under us - the
+            // WebSocket is gone for good, not coming back on its own, so retrying every poll
+            // tick forever would just spam this same failure. Nothing else notices this on
+            // its own either: m_Connected would otherwise stay true even after the browser is
+            // relaunched, since that only spawns a fresh Chrome process/CDP endpoint - it
+            // doesn't do anything about this now-dead m_CdpClient - so Connect (not just
+            // Launch Browser) would still be required to actually recover. Resetting here
+            // leaves the same state a manual Disconnect does, which the UI reflects
+            // immediately, and which Connect can cleanly re-establish once a browser/tab
+            // exists again.
+            LOG_WARN("Poll: CDP connection lost - resetting to disconnected");
+            Disconnect();
+            return newMoves;
+        }
+
+        // Transient and the connection itself is still alive - a slow round trip, a JS
+        // exception, a malformed response. Don't tear down the connection over one failed
+        // poll tick; just retry next tick.
         LOG_WARN("Poll: CDP evaluate failed: {}", jsResult.error().Message);
         return newMoves;
     }
