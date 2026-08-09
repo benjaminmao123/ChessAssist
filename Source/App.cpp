@@ -93,7 +93,10 @@ int App::Run()
         m_GameSession.OnEngineBestMove(result);
     });
 
-    m_ControlsPanel.RestartEngine("");
+    // Passes the (possibly settings.ini-restored) configured path rather than "" so a
+    // persisted custom engine path takes effect immediately instead of being silently
+    // overridden by the bundled default - see ControlsPanel::GetEnginePath()'s comment.
+    m_ControlsPanel.RestartEngine(m_ControlsPanel.GetEnginePath());
 
     constexpr std::chrono::milliseconds kPollInterval{500};
     m_LastPollTime = std::chrono::steady_clock::now();
@@ -123,6 +126,8 @@ int App::Run()
 
         m_Window.EndFrame();
     }
+
+    m_ControlsPanel.SaveSettings();
 
     m_Controller.StopSearch();
     m_Controller.Shutdown();

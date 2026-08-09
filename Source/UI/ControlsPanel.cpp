@@ -7,7 +7,10 @@
 #include "ImguiUtils.h"
 
 #include <imgui.h>
+#include <ini/ini.h>
 
+#include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <filesystem>
 #include <optional>
@@ -16,6 +19,11 @@
 namespace
 {
 constexpr const char* kSiteNames[] = {"Chess.com", "Lichess"};
+
+// Parallel tables for the "play current suggestion now" hotkey combo - kept short/common
+// rather than exhaustive so the dropdown stays a quick pick, not a full key-capture UI.
+constexpr const char* kHotkeyNames[] = {"Space", "Enter", "Tab", "F1", "F2", "F3", "F4"};
+constexpr ImGuiKey kHotkeyKeys[] = {ImGuiKey_Space, ImGuiKey_Enter, ImGuiKey_Tab, ImGuiKey_F1, ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4};
 }  // namespace
 
 ControlsPanel::ControlsPanel(EngineController& controller, GameSession& gameSession)
@@ -23,6 +31,8 @@ ControlsPanel::ControlsPanel(EngineController& controller, GameSession& gameSess
 {
     const std::string defaultEnginePath = ExecutablePathUtil::GetDefaultStockfishPath().string();
     std::snprintf(m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size(), "%s", defaultEnginePath.c_str());
+
+    LoadSettings();
 }
 
 void ControlsPanel::RestartEngine(std::string_view enginePath)
@@ -60,11 +70,95 @@ void ControlsPanel::ApplyEloTarget()
     }
 }
 
+std::string_view ControlsPanel::GetEnginePath() const
+{
+    return m_EngineExecutablePathBuffer.data();
+}
+
+void ControlsPanel::LoadSettings()
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+    if (!std::filesystem::exists(path))
+        return;
+
+    try
+    {
+        const inih::INIReader ini(path);
+
+        const std::string enginePath = ini.Get<std::string>("Engine", "Path", "");
+        if (!enginePath.empty())
+            std::snprintf(m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size(), "%s", enginePath.c_str());
+
+        m_SelectedSite = static_cast<ChessSite>(std::clamp(ini.Get<int>("Connection", "Site", static_cast<int>(m_SelectedSite)), 0, IM_ARRAYSIZE(kSiteNames) - 1));
+
+        // Get<T>'s default-value parameter is T&& with T explicitly fixed (not deduced) by the
+        // <T> below, so it binds only to rvalues - static_cast produces one from each lvalue
+        // member (plain `m_LimitElo` etc. wouldn't compile).
+        m_LimitElo = ini.Get<bool>("Strength", "LimitElo", static_cast<bool>(m_LimitElo));
+        m_Elo = std::clamp(ini.Get<int>("Strength", "Elo", static_cast<int>(m_Elo)), GameSession::kMinElo, GameSession::kMaxElo);
+        m_BlitzMode = ini.Get<bool>("Strength", "BlitzMode", static_cast<bool>(m_BlitzMode));
+
+        m_AutoplayEnabled = ini.Get<bool>("Autoplay", "Enabled", static_cast<bool>(m_AutoplayEnabled));
+        m_PremoveEnabled = ini.Get<bool>("Autoplay", "Premove", static_cast<bool>(m_PremoveEnabled));
+        m_RandomizeMoveDelay = ini.Get<bool>("Autoplay", "RandomizeDelay", static_cast<bool>(m_RandomizeMoveDelay));
+        m_MoveDelayMs = std::clamp(ini.Get<int>("Autoplay", "MoveDelayMs", static_cast<int>(m_MoveDelayMs)), 0, 10000);
+        m_MoveDelayMaxMs = std::clamp(ini.Get<int>("Autoplay", "MoveDelayMaxMs", static_cast<int>(m_MoveDelayMaxMs)), 0, 10000);
+
+        m_PlayMoveHotkeyIndex = std::clamp(ini.Get<int>("ManualPlay", "HotkeyIndex", static_cast<int>(m_PlayMoveHotkeyIndex)), 0, IM_ARRAYSIZE(kHotkeyNames) - 1);
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("LoadSettings: failed to read '{}': {} - using defaults", path, e.what());
+        return;
+    }
+
+    // Mirror every loaded value into GameSession, the same way each widget's own on-change
+    // handler would in Draw() - the Elo/BlitzMode/EngineController half of this (UCI_Elo etc.)
+    // is deliberately NOT done here: the engine hasn't started yet at construction time (see
+    // ApplyEloTarget's SetOption no-op comment), so App's startup RestartEngine() call, which
+    // ends with its own ApplyEloTarget(), covers that once the engine actually exists.
+    m_GameSession->SetBlitzMode(m_BlitzMode);
+    m_GameSession->SetAutoplayEnabled(m_AutoplayEnabled);
+    m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
+    m_GameSession->SetMoveDelay(m_MoveDelayMs, m_RandomizeMoveDelay ? m_MoveDelayMaxMs : m_MoveDelayMs);
+
+    LOG_INFO("LoadSettings: restored settings from {}", path);
+}
+
+void ControlsPanel::SaveSettings() const
+{
+    inih::INIReader ini;
+    ini.InsertEntry("Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
+    ini.InsertEntry("Connection", "Site", static_cast<int>(m_SelectedSite));
+    ini.InsertEntry("Strength", "LimitElo", m_LimitElo);
+    ini.InsertEntry("Strength", "Elo", m_Elo);
+    ini.InsertEntry("Strength", "BlitzMode", m_BlitzMode);
+    ini.InsertEntry("Autoplay", "Enabled", m_AutoplayEnabled);
+    ini.InsertEntry("Autoplay", "Premove", m_PremoveEnabled);
+    ini.InsertEntry("Autoplay", "RandomizeDelay", m_RandomizeMoveDelay);
+    ini.InsertEntry("Autoplay", "MoveDelayMs", m_MoveDelayMs);
+    ini.InsertEntry("Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
+    ini.InsertEntry("ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
+
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+    try
+    {
+        inih::INIWriter::write(path, ini, /*overwrite=*/true);
+        LOG_INFO("SaveSettings: wrote settings to {}", path);
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("SaveSettings: failed to write '{}': {}", path, e.what());
+    }
+}
+
 void ControlsPanel::Draw()
 {
     ImGui::Begin("Controls");
 
-    ImGui::Text("Engine: %s", m_Controller->IsRunning() ? "running" : "not running");
+    ImGui::SeparatorText("Engine");
+
+    ImGui::TextColored(m_Controller->IsRunning() ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Engine: %s", m_Controller->IsRunning() ? "running" : "not running");
 
     // Swapping the engine out from under an in-progress game would silently reset whatever
     // analysis state the new process starts with mid-position - require disconnecting first.
@@ -83,7 +177,7 @@ void ControlsPanel::Draw()
     if (m_GameSession->IsConnected())
         ImGuiUtils::TextColorWrapped(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Disconnect to change engine");
 
-    ImGui::Separator();
+    ImGui::SeparatorText("Strength & Speed");
 
     // Limits both the engine's own play (UCI_LimitStrength/UCI_Elo) and, roughly, how long/
     // deep it searches (see GameSession::SetEloTarget) - a single control for "make it play
@@ -102,7 +196,7 @@ void ControlsPanel::Draw()
     if (ImGuiUtils::CheckboxTextWrapped("##BlitzMode", &m_BlitzMode, "Blitz mode (fast, shallow searches)"))
         m_GameSession->SetBlitzMode(m_BlitzMode);
 
-    ImGui::Separator();
+    ImGui::SeparatorText("Connection");
 
     int siteIndex = static_cast<int>(m_SelectedSite);
     if (ImGui::Combo("Site", &siteIndex, kSiteNames, IM_ARRAYSIZE(kSiteNames)))
@@ -162,6 +256,8 @@ void ControlsPanel::Draw()
         ImGuiUtils::TextColorWrapped(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "Not connected - launch the browser and click Connect to start.");
     }
 
+    ImGui::SeparatorText("Autoplay");
+
     // Plays the engine's suggested move on the board automatically (drag-simulated via CDP)
     // whenever it's the tracked player's own turn. Intended for engine-vs-bot/engine testing,
     // not for use against a live human opponent - that would take the player out of the loop
@@ -173,6 +269,51 @@ void ControlsPanel::Draw()
     // shown regardless so the setting isn't lost if autoplay gets toggled off and back on.
     if (ImGuiUtils::CheckboxTextWrapped("##PremoveEnabled", &m_PremoveEnabled, "Enable premoves (experimental)"))
         m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
+
+    ImGui::Separator();
+
+    // Artificial pacing before autoplay actually plays a decided move on the board - layered
+    // on top of (not instead of) the engine's own think time (Elo/Blitz above); see
+    // GameSession::SetMoveDelay. Doesn't apply to the premove fast-path, which is deliberately
+    // instant.
+    bool delayChanged = ImGuiUtils::CheckboxTextWrapped("##RandomizeMoveDelay", &m_RandomizeMoveDelay, "Randomize wait time");
+
+    if (m_RandomizeMoveDelay)
+    {
+        if (m_MoveDelayMaxMs < m_MoveDelayMs)
+            m_MoveDelayMaxMs = m_MoveDelayMs;
+
+        // Native ImGui widget labels are drawn on a single line to the right of the widget and
+        // don't wrap - too easy to clip in this panel's narrow column, so the label is drawn
+        // separately (wrapped) above the widget instead, with the widget's own label hidden.
+        ImGui::TextWrapped("Wait range (ms)");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        delayChanged |= ImGui::DragIntRange2("##WaitRangeMs", &m_MoveDelayMs, &m_MoveDelayMaxMs, 10.0f, 0, 10000, "Min: %d ms", "Max: %d ms");
+    }
+    else
+    {
+        ImGui::TextWrapped("Wait before playing (ms)");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        delayChanged |= ImGui::SliderInt("##WaitMs", &m_MoveDelayMs, 0, 10000);
+    }
+
+    if (delayChanged)
+        m_GameSession->SetMoveDelay(m_MoveDelayMs, m_RandomizeMoveDelay ? m_MoveDelayMaxMs : m_MoveDelayMs);
+
+    ImGui::SeparatorText("Manual Play");
+
+    // Manual "play the current suggestion now" hotkey - only fires while autoplay is off
+    // (with it on, moves already play themselves per the wait-time setting above) and while
+    // this window/app isn't capturing text input, so it doesn't fire while e.g. editing the
+    // engine path field above.
+    ImGui::BeginDisabled(m_AutoplayEnabled);
+    ImGui::TextWrapped("Play-move hotkey");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::Combo("##PlayMoveHotkey", &m_PlayMoveHotkeyIndex, kHotkeyNames, IM_ARRAYSIZE(kHotkeyNames));
+    ImGui::EndDisabled();
+
+    if (!m_AutoplayEnabled && m_GameSession->IsConnected() && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(kHotkeyKeys[m_PlayMoveHotkeyIndex], false))
+        m_GameSession->PlayBestMoveNow();
 
     ImGui::End();
 }

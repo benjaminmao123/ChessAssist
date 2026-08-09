@@ -60,6 +60,11 @@ std::filesystem::path GetBrowserProfileDirectory()
     return GetCurrentExecutablePath().parent_path() / "BrowserProfile";
 }
 
+std::filesystem::path GetSettingsFilePath()
+{
+    return GetCurrentExecutablePath().parent_path() / "settings.ini";
+}
+
 std::optional<std::filesystem::path> PromptForEnginePath()
 {
     nfdchar_t* outPath = nullptr;

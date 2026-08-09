@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <random>
 
 namespace
 {
@@ -93,6 +94,18 @@ float ScoreLossToAccuracyPercent(float centipawnLoss)
 {
     const float accuracy = 103.1668f * std::exp(-0.04354f * centipawnLoss) - 3.1669f;
     return std::clamp(accuracy, 0.0f, 100.0f);
+}
+
+// Picks the artificial pre-move delay for a freshly queued autoplay move (see
+// GameSession::SetMoveDelay) - a fresh draw per call, not a shared/seeded sequence, since this
+// only ever needs to look unpredictable to whatever's watching the board, not be reproducible.
+int RandomMoveDelayMs(int minMs, int maxMs)
+{
+    if (maxMs <= minMs)
+        return minMs;
+
+    thread_local std::mt19937 rng{std::random_device{}()};
+    return std::uniform_int_distribution<int>(minMs, maxMs)(rng);
 }
 }  // namespace
 
@@ -318,6 +331,31 @@ bool GameSession::IsAutoplayEnabled() const
     return m_AutoplayEnabled.load();
 }
 
+void GameSession::SetMoveDelay(int minMs, int maxMs)
+{
+    m_MinMoveDelayMs = minMs;
+    m_MaxMoveDelayMs = std::max(minMs, maxMs);
+}
+
+void GameSession::PlayBestMoveNow()
+{
+    if (!m_Connected || m_Desynced)
+    {
+        LOG_WARN("PlayBestMoveNow: not connected or desynced - ignoring");
+        return;
+    }
+
+    const std::optional<std::string> move = GetSuggestedMove();
+    if (!move)
+    {
+        LOG_WARN("PlayBestMoveNow: no current suggestion to play");
+        return;
+    }
+
+    LOG_INFO("PlayBestMoveNow: manually playing '{}'", *move);
+    PlayMoveOnBoard(*move);
+}
+
 void GameSession::OnEngineBestMove(const BestMoveResult& result)
 {
     // See the member comments on m_RequestedForSide/m_BlackAtBottom for why this pairing is
@@ -368,9 +406,12 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
         return;
     }
 
-    LOG_INFO("OnEngineBestMove: queuing autoplay of '{}'", result.BestMove);
+    const int delayMs = RandomMoveDelayMs(m_MinMoveDelayMs.load(), m_MaxMoveDelayMs.load());
+
+    LOG_INFO("OnEngineBestMove: queuing autoplay of '{}' (playing in {} ms)", result.BestMove, delayMs);
     std::scoped_lock lock(m_AutoMoveMutex);
     m_PendingAutoMove = result.BestMove;
+    m_AutoMoveReadyTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(delayMs);
 }
 
 void GameSession::OnEngineInfo(const SearchInfo& info)
@@ -414,8 +455,11 @@ void GameSession::Tick()
     std::optional<std::string> move;
     {
         std::scoped_lock lock(m_AutoMoveMutex);
-        move = std::move(m_PendingAutoMove);
-        m_PendingAutoMove.reset();
+        if (m_PendingAutoMove && std::chrono::steady_clock::now() >= m_AutoMoveReadyTime)
+        {
+            move = std::move(m_PendingAutoMove);
+            m_PendingAutoMove.reset();
+        }
     }
 
     if (!move || !m_Connected || m_Desynced)

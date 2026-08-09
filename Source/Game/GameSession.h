@@ -9,6 +9,7 @@
 #include "Engine/EngineTypes.h"
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -72,6 +73,21 @@ public:
     void SetAutoplayEnabled(bool enabled);
     [[nodiscard]] bool IsAutoplayEnabled() const;
 
+    // Sets an artificial delay applied before Tick() actually plays a queued autoplay move,
+    // layered on top of (not instead of) the engine's own think time (SetEloTarget/
+    // SetBlitzMode) - purely a pacing/human-likeness knob, doesn't affect analysis. A fresh
+    // random delay in [minMs, maxMs] (both inclusive) is picked independently each time a move
+    // is queued (see OnEngineBestMove); pass minMs == maxMs for a fixed, non-randomized delay.
+    // maxMs is clamped up to minMs if given smaller. Does not affect the premove fast-path
+    // (TryPremove), which is deliberately instant. Call from the UI thread only.
+    void SetMoveDelay(int minMs, int maxMs);
+
+    // Plays the current engine suggestion (see GetSuggestedMove()) immediately - bypasses both
+    // autoplay's own turn-gating and SetMoveDelay's artificial delay. Intended for a manual
+    // "play now" hotkey when autoplay is off. No-op (logged) if not connected, desynced, or
+    // there's no current suggestion. Call from the UI thread only.
+    void PlayBestMoveNow();
+
     // Routed here from EngineController::SetOnBestMove via main.cpp (which also forwards the
     // same result to EngineInfoPanel) - EngineController doesn't support multiple
     // subscribers, so main.cpp's callback fans out instead. Called from the engine's
@@ -85,8 +101,9 @@ public:
     // thread - same constraints as OnEngineBestMove.
     void OnEngineInfo(const SearchInfo& info);
 
-    // Plays a pending autoplay move (queued by OnEngineBestMove), if any. Call once per frame
-    // from the UI thread, alongside Poll().
+    // Plays a pending autoplay move (queued by OnEngineBestMove), if any and its configured
+    // delay (see SetMoveDelay) has elapsed. Call once per frame from the UI thread, alongside
+    // Poll().
     void Tick();
 
     // Side to move that the most recently requested engine search is analyzing - safe to
@@ -217,6 +234,18 @@ private:
 
     std::mutex m_AutoMoveMutex;
     std::optional<std::string> m_PendingAutoMove;  // guarded by m_AutoMoveMutex
+
+    // When m_PendingAutoMove is set, the time at which Tick() is allowed to actually play it -
+    // computed once by OnEngineBestMove from m_MinMoveDelayMs/m_MaxMoveDelayMs when the move is
+    // queued, rather than re-rolled every frame. Guarded by m_AutoMoveMutex, like
+    // m_PendingAutoMove itself.
+    std::chrono::steady_clock::time_point m_AutoMoveReadyTime;
+
+    // Delay range applied before Tick() plays a queued autoplay move - see SetMoveDelay().
+    // Set from the UI thread but read from OnEngineBestMove (reader thread) when it picks the
+    // delay for a freshly queued move, hence atomic.
+    std::atomic<int> m_MinMoveDelayMs{0};
+    std::atomic<int> m_MaxMoveDelayMs{0};
 
     // Written by OnEngineBestMove (reader thread) and RequestEngineMove (UI thread, to clear
     // it before every new search - see GetSuggestedMove()'s comment), read by GetSuggestedMove

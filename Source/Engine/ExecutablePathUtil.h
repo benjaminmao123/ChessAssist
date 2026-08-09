@@ -10,6 +10,7 @@ std::filesystem::path GetDefaultStockfishPath();
 std::filesystem::path GetAssetsDirectory();
 std::filesystem::path GetLogsDirectory();
 std::filesystem::path GetBrowserProfileDirectory();
+std::filesystem::path GetSettingsFilePath();
 
 // Opens a native "choose a file" dialog (filtered to .exe) for picking a UCI engine
 // executable - requires NFD_Init() to have been called first (see main.cpp) and NFD_Quit()
