@@ -616,6 +616,21 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
 
     LOG_INFO("Poll: premove hit - opponent played the predicted '{}', immediately playing '{}' without waiting for a fresh search", lastAppliedMove, candidate->OurResponse);
     PlayMoveOnBoard(candidate->OurResponse);
+
+    // No fresh "before" search ran for this move (that's the whole point of a premove hit -
+    // playing instantly rather than waiting one out), so whatever's in
+    // m_PendingBeforeMoveEvalCp is stale, left over from some earlier, unrelated position.
+    // Left alone, it would get incorrectly paired with the next "after" search's eval once
+    // one completes for the position this move just produced - a bogus centipawn-loss/
+    // accuracy score for a move that was never actually evaluated. Clearing both here ensures
+    // this move is skipped by GetAccuracyPercent(), matching its own documented "a Blitz/
+    // premove-skipped position just isn't counted" intent instead of silently violating it.
+    {
+        std::scoped_lock lock(m_AccuracyMutex);
+        m_PendingBeforeMoveEvalCp.reset();
+        m_LatestAfterMoveEvalCp.reset();
+    }
+
     return true;
 }
 
