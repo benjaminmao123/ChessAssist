@@ -38,12 +38,7 @@ std::string TimestampedLogFilename()
 }  // namespace
 
 App::App()
-    : m_SandboxSession(m_SandboxController)
-    , m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, m_PieceTextures)
-    , m_AnalysisSession(m_AnalysisController)
-    , m_AnalysisBoardPanel(m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures)
-    , m_GameSession(m_Controller)
-    , m_ControlsPanel(m_Controller, m_GameSession)
+    : m_SandboxSession(m_SandboxController), m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, m_PieceTextures), m_AnalysisSession(m_AnalysisController), m_AnalysisBoardPanel(m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures), m_GameSession(m_Controller), m_ControlsPanel(m_Controller, m_GameSession)
 {
     InitLogging();
 }
@@ -68,7 +63,7 @@ void App::InitLogging()
 
 int App::Run()
 {
-    if (!m_Window.Init(1920, 1080, "ChessAssist"))
+    if (!m_Window.Init(1920, 1080, "Chess Assist"))
     {
         LOG_ERROR("Failed to initialize application window");
         return 1;

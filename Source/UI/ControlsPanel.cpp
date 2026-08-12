@@ -161,20 +161,20 @@ void ControlsPanel::SaveSettings() const
     // other direction.
     inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "SaveSettings");
 
-    SettingsIni::UpsertEntry(ini,"Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
-    SettingsIni::UpsertEntry(ini,"Connection", "Site", static_cast<int>(m_SelectedSite));
-    SettingsIni::UpsertEntry(ini,"Strength", "LimitElo", m_LimitElo);
-    SettingsIni::UpsertEntry(ini,"Strength", "Elo", m_Elo);
-    SettingsIni::UpsertEntry(ini,"Strength", "BlitzMode", m_BlitzMode);
-    SettingsIni::UpsertEntry(ini,"Autoplay", "Enabled", m_AutoplayEnabled);
-    SettingsIni::UpsertEntry(ini,"Autoplay", "Premove", m_PremoveEnabled);
-    SettingsIni::UpsertEntry(ini,"Autoplay", "RandomizeDelay", m_RandomizeMoveDelay);
-    SettingsIni::UpsertEntry(ini,"Autoplay", "MoveDelayMs", m_MoveDelayMs);
-    SettingsIni::UpsertEntry(ini,"Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
-    SettingsIni::UpsertEntry(ini,"ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
-    SettingsIni::UpsertEntry(ini,"OpeningBook", "Enabled", m_OpeningBookEnabled);
-    SettingsIni::UpsertEntry(ini,"OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
-    SettingsIni::UpsertEntry(ini,"OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
+    SettingsIni::UpsertEntry(ini, "Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
+    SettingsIni::UpsertEntry(ini, "Connection", "Site", static_cast<int>(m_SelectedSite));
+    SettingsIni::UpsertEntry(ini, "Strength", "LimitElo", m_LimitElo);
+    SettingsIni::UpsertEntry(ini, "Strength", "Elo", m_Elo);
+    SettingsIni::UpsertEntry(ini, "Strength", "BlitzMode", m_BlitzMode);
+    SettingsIni::UpsertEntry(ini, "Autoplay", "Enabled", m_AutoplayEnabled);
+    SettingsIni::UpsertEntry(ini, "Autoplay", "Premove", m_PremoveEnabled);
+    SettingsIni::UpsertEntry(ini, "Autoplay", "RandomizeDelay", m_RandomizeMoveDelay);
+    SettingsIni::UpsertEntry(ini, "Autoplay", "MoveDelayMs", m_MoveDelayMs);
+    SettingsIni::UpsertEntry(ini, "Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
+    SettingsIni::UpsertEntry(ini, "ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
+    SettingsIni::UpsertEntry(ini, "OpeningBook", "Enabled", m_OpeningBookEnabled);
+    SettingsIni::UpsertEntry(ini, "OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
+    SettingsIni::UpsertEntry(ini, "OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
 
     SettingsIni::SaveMerged(path, ini, "SaveSettings");
 }
@@ -276,7 +276,7 @@ void ControlsPanel::Draw()
     }
     else
     {
-        ImGui::TextWrapped("Log in and open a game in the ChessAssist browser window, then click Connect.");
+        ImGui::TextWrapped("Log in and open a game in the Chess Assist browser window, then click Connect.");
 
         // A valid, in-sync session has nothing for another Connect click to do - and clicking
         // it anyway tears down the live CDP connection out from under any in-flight Poll(),
