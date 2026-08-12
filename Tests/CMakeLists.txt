@@ -8,6 +8,7 @@ add_executable(ChessAssistTests
     FenWriterTests.cpp
     PolyglotBookTests.cpp
     GameSessionTests.cpp
+    AnalysisBoardSessionTests.cpp
     BrowserPipelineTests.cpp
     SettingsIniTests.cpp
 )

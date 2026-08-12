@@ -62,8 +62,11 @@ set(GAME_SOURCES
     Game/PremoveTracker.cpp
     Game/GameSession.h
     Game/GameSession.cpp
+    Game/IPlayableBoard.h
     Game/SandboxSession.h
     Game/SandboxSession.cpp
+    Game/AnalysisBoardSession.h
+    Game/AnalysisBoardSession.cpp
 )
 
 set(SETTINGS_SOURCES
@@ -85,8 +88,14 @@ set(UI_SOURCES
     UI/ControlsPanel.cpp
     UI/EngineInfoPanel.h
     UI/EngineInfoPanel.cpp
+    UI/ChessPieceTextures.h
+    UI/ChessPieceTextures.cpp
+    UI/ChessBoardWidget.h
+    UI/ChessBoardWidget.cpp
     UI/BoardStatePanel.h
     UI/BoardStatePanel.cpp
+    UI/AnalysisBoardPanel.h
+    UI/AnalysisBoardPanel.cpp
     UI/LogPanel.h
     UI/LogPanel.cpp
     UI/ImGuiLogSink.h

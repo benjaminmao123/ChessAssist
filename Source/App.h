@@ -1,10 +1,13 @@
 #pragma once
 
 #include "Engine/EngineController.h"
+#include "Game/AnalysisBoardSession.h"
 #include "Game/GameSession.h"
 #include "Game/SandboxSession.h"
+#include "UI/AnalysisBoardPanel.h"
 #include "UI/AppWindow.h"
 #include "UI/BoardStatePanel.h"
+#include "UI/ChessPieceTextures.h"
 #include "UI/ControlsPanel.h"
 #include "UI/EngineInfoPanel.h"
 #include "UI/LogPanel.h"
@@ -43,15 +46,28 @@ private:
     // Declaration order matters here: members are constructed in this order (and destroyed in
     // reverse), and several constructors take references to earlier members that must already
     // be alive: m_SandboxSession needs m_SandboxController; m_BoardStatePanel needs
-    // m_EnginePanel, m_SandboxEnginePanel, and m_SandboxSession; m_GameSession needs
+    // m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, and m_PieceTextures;
+    // m_AnalysisSession needs m_AnalysisController; m_AnalysisBoardPanel needs
+    // m_AnalysisEnginePanel, m_AnalysisSession, and m_PieceTextures; m_GameSession needs
     // m_Controller; m_ControlsPanel needs m_Controller and m_GameSession.
     LogPanel m_LogPanel;
     AppWindow m_Window;
+
+    // Loaded once (see Run()) and shared by both boards below - loading the same 13 PNGs twice
+    // would double GPU memory/disk I/O for no benefit.
+    ChessPieceTextures m_PieceTextures;
+
     EngineInfoPanel m_EnginePanel;
     EngineInfoPanel m_SandboxEnginePanel;
     EngineController m_SandboxController;  // dedicated engine process for sandbox "what-if" analysis - never touches the live game's own search
     SandboxSession m_SandboxSession;
     BoardStatePanel m_BoardStatePanel;  // also draws m_EnginePanel/m_SandboxEnginePanel's contents - see its header
+
+    EngineInfoPanel m_AnalysisEnginePanel;
+    EngineController m_AnalysisController;  // dedicated engine process for the free-standing analysis board - unrelated to the live game or the sandbox
+    AnalysisBoardSession m_AnalysisSession;
+    AnalysisBoardPanel m_AnalysisBoardPanel;  // also draws m_AnalysisEnginePanel's contents - see its header
+
     EngineController m_Controller;
     GameSession m_GameSession;
     ControlsPanel m_ControlsPanel;

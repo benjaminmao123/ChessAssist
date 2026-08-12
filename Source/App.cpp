@@ -39,7 +39,9 @@ std::string TimestampedLogFilename()
 
 App::App()
     : m_SandboxSession(m_SandboxController)
-    , m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession)
+    , m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, m_PieceTextures)
+    , m_AnalysisSession(m_AnalysisController)
+    , m_AnalysisBoardPanel(m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures)
     , m_GameSession(m_Controller)
     , m_ControlsPanel(m_Controller, m_GameSession)
 {
@@ -73,8 +75,9 @@ int App::Run()
     }
 
     // Requires a live GL context (created by m_Window.Init() above), so can't happen any
-    // earlier - see BoardStatePanel::LoadTextures()'s comment.
-    m_BoardStatePanel.LoadTextures();
+    // earlier - see ChessPieceTextures::LoadTextures()'s comment. Loaded once and shared by
+    // both m_BoardStatePanel and m_AnalysisBoardPanel.
+    m_PieceTextures.LoadTextures();
 
     // Checked once, right after Init() (which points ImGui's own io.IniFilename at this same
     // path - see its comment) but before the first frame actually loads it - a saved imgui.ini
@@ -123,6 +126,30 @@ int App::Run()
         m_SandboxSession.OnEngineBestMove(result);
     });
 
+    // Third, independent Stockfish process dedicated to the free-standing analysis board - same
+    // isolation reasoning as the sandbox controller above, just for a position that's unrelated
+    // to the live game entirely rather than a hypothetical continuation of it.
+    if (const auto analysisStartResult = m_AnalysisController.Start(); !analysisStartResult)
+        LOG_ERROR("Failed to start analysis engine: {}", analysisStartResult.error().Message);
+
+    // Fires the analysis board's first real search request - m_AnalysisSession was constructed
+    // (in App's own constructor) well before the engine process above existed, so it
+    // deliberately skipped requesting analysis for its initial position itself (see
+    // AnalysisBoardSession's constructor comment). Reset() is a convenient "re-analyze the
+    // current (still-starting) position now that the engine actually exists" - it's a no-op on
+    // the empty history that's already there.
+    m_AnalysisSession.Reset();
+
+    // No OnEngineInfo forwarding needed here (unlike the live/sandbox controllers above) -
+    // AnalysisBoardSession has no lookahead/alternate-move/accuracy concept for an info line to
+    // feed; m_AnalysisEnginePanel.UpdateInfo() alone already covers everything
+    // EngineInfoPanel::DrawContents()/GetWhiteWinFraction() need.
+    m_AnalysisController.SetOnInfo([this](const SearchInfo& info) { m_AnalysisEnginePanel.UpdateInfo(info, m_AnalysisSession.GetRequestedSide()); });
+    m_AnalysisController.SetOnBestMove([this](const BestMoveResult& result) {
+        m_AnalysisEnginePanel.UpdateBestMove(result);
+        m_AnalysisSession.OnEngineBestMove(result);
+    });
+
     constexpr std::chrono::milliseconds kPollInterval{500};
     m_LastPollTime = std::chrono::steady_clock::now();
 
@@ -156,6 +183,7 @@ int App::Run()
 
         m_ControlsPanel.Draw();
         m_BoardStatePanel.Draw(m_GameSession.GetSuggestedMove(), m_GameSession.GetLookaheadMove(), m_GameSession.GetAlternateMoves(), m_GameSession.GetAccuracyPercent());
+        m_AnalysisBoardPanel.Draw();
         m_LogPanel.Draw();
 
         const auto now = std::chrono::steady_clock::now();
@@ -175,6 +203,8 @@ int App::Run()
 
     m_SandboxController.StopSearch();
     m_SandboxController.Shutdown();
+    m_AnalysisController.StopSearch();
+    m_AnalysisController.Shutdown();
     m_Controller.StopSearch();
     m_Controller.Shutdown();
     m_Window.Shutdown();
@@ -205,6 +235,9 @@ void App::SetupDefaultDockLayout(unsigned int dockspaceId)
     ImGui::DockBuilderSplitNode(rightId, ImGuiDir_Up, 0.75f, &boardId, &logId);
 
     ImGui::DockBuilderDockWindow("Controls", leftId);
+    // Both docked to the same node so they appear as tabs in one panel area - the tracked live
+    // game and the free-standing analysis tool.
+    ImGui::DockBuilderDockWindow("Live Analysis Board", boardId);
     ImGui::DockBuilderDockWindow("Analysis Board", boardId);
     ImGui::DockBuilderDockWindow("Log", logId);
 

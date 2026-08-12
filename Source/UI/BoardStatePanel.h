@@ -1,19 +1,24 @@
 #pragma once
 
-#include <memory>
+#include "ChessBoardWidget.h"
+
 #include <optional>
 #include <string>
 #include <vector>
 
 class EngineInfoPanel;
 class SandboxSession;
+class ChessPieceTextures;
 
-// Renders the tracked position as a real chessboard - checkerboard squares plus piece images -
-// rather than a screenshot; a sanity-check view so a tracking desync is visible at a glance
-// instead of only in log text. Also consolidates the engine's read on the position alongside
-// the board it's about: a vertical eval bar, an on-board arrow for the engine's suggestion, and
-// EngineInfoPanel::DrawContents()'s depth/score/PV/best-move text, all in this one window
-// rather than split across separate ones.
+// Renders the tracked live position (window title "Live Analysis Board") as a real chessboard
+// - checkerboard squares plus piece images - rather than a screenshot; a sanity-check view so a
+// tracking desync is visible at a glance instead of only in log text. Also consolidates the
+// engine's read on the position alongside the board it's about: a vertical eval bar, an
+// on-board arrow for the engine's suggestion, and EngineInfoPanel::DrawContents()'s
+// depth/score/PV/best-move text, all in this one window rather than split across separate ones.
+// A second, entirely independent tool for analyzing arbitrary positions lives in
+// AnalysisBoardPanel - the two share their board/piece-drag rendering via ChessBoardWidget (see
+// its own comment) but otherwise know nothing about each other.
 //
 // Also owns the sandbox's mouse interaction: dragging pieces to explore a hypothetical
 // continuation locally (see SandboxSession) - never touches the live site. Since SandboxSession
@@ -26,18 +31,7 @@ class SandboxSession;
 class BoardStatePanel
 {
 public:
-    BoardStatePanel(EngineInfoPanel& liveEnginePanel, EngineInfoPanel& sandboxEnginePanel, SandboxSession& sandbox);
-    ~BoardStatePanel();
-    BoardStatePanel(const BoardStatePanel&) = delete;
-    BoardStatePanel& operator=(const BoardStatePanel&) = delete;
-
-    // Loads the 12 piece PNGs (wP/wN/wB/wR/wQ/wK/bP/bN/bB/bR/bQ/bK.png) plus the board
-    // background (empty_board.png) from Assets/Chess/ into GL textures. Requires a current GL
-    // context, so must be called after AppWindow::Init() succeeds - not from the constructor,
-    // which runs before the window/context exist. Anything missing or that fails to load is
-    // logged once here and Draw() falls back to a plain drawn checkerboard/empty square for
-    // it, rather than failing the whole panel.
-    void LoadTextures();
+    BoardStatePanel(EngineInfoPanel& liveEnginePanel, EngineInfoPanel& sandboxEnginePanel, SandboxSession& sandbox, const ChessPieceTextures& textures);
 
     // Writes this panel's own display toggles (m_ShowLookaheadArrow/m_ShowAlternateMoves) to
     // settings.ini (see ExecutablePathUtil::GetSettingsFilePath()), overwriting whatever was
@@ -53,23 +47,22 @@ public:
     // position and (from SandboxSession::GetLookaheadMove(), the sandbox's own dedicated
     // engine) a hypothetical one. alternateMoves (see GameSession::GetAlternateMoves()) are the
     // live engine's other candidate moves beyond the primary suggestion, each drawn as its own
-    // arrow in its own color (see kAlternateArrowColors) - shown whenever the "Show alternate
-    // moves" checkbox is checked, likewise in both the live and (from the sandbox's own engine)
-    // hypothetical positions. accuracyPercent (see GameSession::GetAccuracyPercent()) is always
-    // shown from the live game, regardless of sandbox state - nullopt draws a placeholder
-    // rather than being omitted.
+    // arrow in its own color - shown whenever the "Show alternate moves" checkbox is checked,
+    // likewise in both the live and (from the sandbox's own engine) hypothetical positions.
+    // accuracyPercent (see GameSession::GetAccuracyPercent()) is always shown from the live
+    // game, regardless of sandbox state - nullopt draws a placeholder rather than being omitted.
     void Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, const std::vector<std::string>& alternateMoves, std::optional<float> accuracyPercent);
 
 private:
     // Restores m_ShowLookaheadArrow/m_ShowAlternateMoves from settings.ini, if it exists (a
     // fresh install/deleted file just keeps the in-class defaults). Called once from the
-    // constructor - pure file parsing, no GL/window dependency, so (unlike LoadTextures())
-    // there's no reason to defer it.
+    // constructor.
     void LoadSettings();
 
     EngineInfoPanel* m_LiveEnginePanel = nullptr;
     EngineInfoPanel* m_SandboxEnginePanel = nullptr;
     SandboxSession* m_Sandbox = nullptr;
+    const ChessPieceTextures* m_Textures = nullptr;
 
     // Display-only toggles for the lookahead/alternate-move arrows - neither affects
     // GameSession/engine behavior at all, purely what gets drawn. Default on, matching this
@@ -79,6 +72,8 @@ private:
     bool m_ShowLookaheadArrow = true;
     bool m_ShowAlternateMoves = true;
 
-    struct Impl;
-    std::unique_ptr<Impl> m_Impl;
+    // Board/piece rendering plus drag-to-move interaction/promotion popup - see its own
+    // comment. One instance owned here (not shared with AnalysisBoardPanel's own), so its
+    // interaction state is correctly scoped to this board alone.
+    ChessBoardWidget m_Widget;
 };
