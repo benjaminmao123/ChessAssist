@@ -199,6 +199,60 @@ void DrawEvalBar(ImDrawList* drawList, ImVec2 barMin, ImVec2 barMax, std::option
 
     drawList->AddRect(barMin, barMax, kBorderColor);
 }
+
+// Layout/color constants for Draw() and the free/member functions below it - file-scope rather
+// than Draw()-local since several of them (board colors, highlight colors) are now shared with
+// DrawBoardBackground()/BoardStatePanel::Impl's own drawing methods, not just Draw() itself.
+constexpr float kEvalBarWidth = 28.0f;
+constexpr float kEvalBarGap = 12.0f;
+constexpr float kMinSquareSize = 20.0f;
+constexpr ImU32 kLightSquareColor = IM_COL32(0xEE, 0xEE, 0xD2, 255);
+constexpr ImU32 kDarkSquareColor = IM_COL32(0x76, 0x96, 0x56, 255);
+constexpr ImU32 kSourceHighlightColor = IM_COL32(0xFF, 0xCD, 0x00, 110);
+constexpr ImU32 kDestHighlightColor = IM_COL32(0x00, 0xC8, 0x5A, 110);
+constexpr ImU32 kArrowColor = IM_COL32(0xFF, 0x8C, 0x00, 220);
+constexpr ImU32 kLookaheadArrowColor = IM_COL32(0x3A, 0x8C, 0xFF, 200);
+constexpr ImU32 kMatingArrowColor = IM_COL32(0xFF, 0x2A, 0x2A, 235);
+constexpr ImU32 kCheckHighlightColor = IM_COL32(0xFF, 0x1A, 0x1A, 150);
+constexpr ImU32 kMateBannerBg = IM_COL32(0x20, 0x00, 0x00, 210);
+constexpr ImU32 kMateBannerText = IM_COL32(0xFF, 0x70, 0x70, 255);
+constexpr ImU32 kPickedSquareColor = IM_COL32(0xFF, 0xFF, 0x00, 90);
+constexpr ImU32 kLegalDestinationColor = IM_COL32(0x00, 0x00, 0x00, 140);
+
+// One color per alternate candidate move (see GameSession::GetAlternateMoves()), in order -
+// deliberately distinct from the primary (orange/red) and lookahead (blue) arrow colors,
+// and deliberately much more transparent than the primary arrow's alpha 220 - low enough
+// that the primary (best) move still reads as the obvious, solid one at a glance, with each
+// further alternate fading a bit more to reinforce "less preferred than the last." More
+// entries than GameSession::kMultiPvLines - 1 ever needs today, so raising that constant
+// doesn't immediately run out of colors; alternates beyond the array's length reuse its
+// last entry rather than indexing out of bounds.
+constexpr ImU32 kAlternateArrowColors[] = {
+    IM_COL32(0xC9, 0xA8, 0x00, 130),  // 2nd choice - gold
+    IM_COL32(0x9C, 0x27, 0xB0, 100),  // 3rd choice - purple
+    IM_COL32(0x00, 0xAC, 0xC1, 75),   // 4th choice - teal
+};
+
+// Draws the board image if it loaded, else falls back to a plain drawn checkerboard so the
+// panel still shows something usable rather than a blank window.
+void DrawBoardBackground(ImDrawList* drawList, GLuint boardTexture, ImVec2 boardOrigin, ImVec2 boardEnd, float squareSize, bool blackAtBottom)
+{
+    if (boardTexture != 0)
+    {
+        drawList->AddImage(static_cast<ImTextureID>(boardTexture), boardOrigin, boardEnd);
+        return;
+    }
+
+    for (int rank = 0; rank < 8; ++rank)
+    {
+        for (int file = 0; file < 8; ++file)
+        {
+            const ImVec2 squareMin = SquareMin(file, rank, blackAtBottom, boardOrigin, squareSize);
+            const ImVec2 squareMax(squareMin.x + squareSize, squareMin.y + squareSize);
+            drawList->AddRectFilled(squareMin, squareMax, IsLightSquare(file, rank) ? kLightSquareColor : kDarkSquareColor);
+        }
+    }
+}
 }  // namespace
 
 struct BoardStatePanel::Impl
@@ -242,6 +296,25 @@ struct BoardStatePanel::Impl
     std::vector<std::pair<int, int>> AnnotationArrows;
     std::optional<BoardState> LastSeenBoard;
 
+    // Updates Drag/PendingPromotionChoices/AnnotationDrag/AnnotationArrows from this frame's
+    // mouse input - the sandbox drag/click-to-move state machine plus the right-click-drag
+    // planning-arrow annotation tool. Pure input handling, no rendering (see
+    // DrawDragHighlights() below) - split out so BoardStatePanel::Draw() itself reads as a
+    // sequence of named steps rather than one large function mixing input and rendering.
+    // Callers must only call this while interaction is actually enabled (see Draw()'s
+    // interactionEnabled - suppressed while a promotion popup is open).
+    void UpdateSandboxInteraction(SandboxSession& sandbox, const BoardState& board, std::optional<int> squareUnderMouse, bool windowHovered);
+
+    // Renders the picked-up square highlight and lichess-style destination dot/ring markers for
+    // the current Drag state - a no-op while Drag.CurrentMode == Idle.
+    void DrawDragHighlights(ImDrawList* drawList, const BoardState& board, bool blackAtBottom, ImVec2 boardOrigin, float squareSize) const;
+
+    // Promotion-choice popup opened by UpdateSandboxInteraction()'s resolveDrop() when a drop
+    // matched more than one legal move (the 4 promotion entries) - positioned over the
+    // destination square, 4 piece-texture buttons. A no-op while PendingPromotionChoices is
+    // unset.
+    void DrawPromotionPopup(SandboxSession& sandbox, const BoardState& board, bool blackAtBottom, ImVec2 boardOrigin, float squareSize);
+
     ~Impl()
     {
         if (TexturesLoaded)
@@ -252,6 +325,188 @@ struct BoardStatePanel::Impl
         }
     }
 };
+
+void BoardStatePanel::Impl::UpdateSandboxInteraction(SandboxSession& sandbox, const BoardState& board, std::optional<int> squareUnderMouse, bool windowHovered)
+{
+    DragState& drag = Drag;
+
+    const auto isLegalDestination = [&](int square) { return std::any_of(drag.LegalDestinations.begin(), drag.LegalDestinations.end(), [square](const MoveGenerator::LegalMove& m) { return m.To == square; }); };
+
+    const auto resolveDrop = [&](int destSquare)
+    {
+        std::vector<MoveGenerator::LegalMove> matches;
+        for (const MoveGenerator::LegalMove& move : drag.LegalDestinations)
+        {
+            if (move.To == destSquare)
+                matches.push_back(move);
+        }
+
+        drag = DragState{};
+
+        if (matches.empty())
+            return;  // illegal drop - snap back (rendering just resumes from sandbox.GetBoard())
+
+        if (matches.size() == 1)
+        {
+            sandbox.PlayMove(matches.front());
+            return;
+        }
+
+        PendingPromotionChoices = std::move(matches);
+        PendingPromotionSquare = destSquare;
+        ImGui::OpenPopup("SandboxPromotionPicker");
+    };
+
+    // Left-clicking the board clears any drawn planning arrows - chess.com's own convention
+    // (left-click dismisses annotations; only right-click-drag creates/removes them). Fires
+    // regardless of what else this click does (pick up a piece, play a move, deselect) -
+    // matches "clicking to interact with the board" broadly, not just empty squares.
+    if (squareUnderMouse && windowHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        AnnotationArrows.clear();
+
+    if (drag.CurrentMode != DragState::Mode::Dragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && squareUnderMouse && (drag.CurrentMode != DragState::Mode::Idle || windowHovered))
+    {
+        const int square = *squareUnderMouse;
+        const std::optional<Piece>& clickedPiece = board[square];
+
+        if (drag.CurrentMode == DragState::Mode::PickedUp && isLegalDestination(square))
+        {
+            resolveDrop(square);
+        }
+        else if (clickedPiece && clickedPiece->Color == sandbox.GetSideToMove())
+        {
+            std::vector<MoveGenerator::LegalMove> legalMoves = sandbox.GetLegalMovesFrom(square);
+            if (!legalMoves.empty())
+            {
+                drag.CurrentMode = DragState::Mode::PickedUp;
+                drag.PickedSquare = square;
+                drag.LegalDestinations = std::move(legalMoves);
+            }
+            else
+            {
+                drag = DragState{};
+            }
+        }
+        else
+        {
+            drag = DragState{};
+        }
+    }
+
+    if (drag.CurrentMode == DragState::Mode::PickedUp && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f))
+        drag.CurrentMode = DragState::Mode::Dragging;
+
+    if (drag.CurrentMode == DragState::Mode::Dragging && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    {
+        if (squareUnderMouse)
+            resolveDrop(*squareUnderMouse);
+        else
+            drag = DragState{};
+    }
+
+    // Right-click-drag draws/toggles a planning arrow (see the "annotation arrows" rendering
+    // block in Draw()); a plain right-click tap (no drag - released on the same square it
+    // started on) instead falls back to its previous job of deselecting an in-progress sandbox
+    // pick-up, so that behavior isn't lost.
+    AnnotationDragState& annotationDrag = AnnotationDrag;
+
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && squareUnderMouse && windowHovered)
+    {
+        annotationDrag.Active = true;
+        annotationDrag.StartSquare = *squareUnderMouse;
+    }
+
+    if (annotationDrag.Active && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+    {
+        annotationDrag.Active = false;
+
+        if (squareUnderMouse && *squareUnderMouse != annotationDrag.StartSquare)
+        {
+            const std::pair<int, int> arrow{annotationDrag.StartSquare, *squareUnderMouse};
+            std::vector<std::pair<int, int>>& arrows = AnnotationArrows;
+            const auto it = std::find(arrows.begin(), arrows.end(), arrow);
+            if (it != arrows.end())
+                arrows.erase(it);  // dragging the same arrow again removes it
+            else
+                arrows.push_back(arrow);
+        }
+        else if (drag.CurrentMode != DragState::Mode::Idle)
+        {
+            drag = DragState{};
+        }
+    }
+}
+
+void BoardStatePanel::Impl::DrawDragHighlights(ImDrawList* drawList, const BoardState& board, bool blackAtBottom, ImVec2 boardOrigin, float squareSize) const
+{
+    if (Drag.CurrentMode == DragState::Mode::Idle)
+        return;
+
+    const ImVec2 pickedMin = SquareMin(Drag.PickedSquare % 8, Drag.PickedSquare / 8, blackAtBottom, boardOrigin, squareSize);
+    drawList->AddRectFilled(pickedMin, ImVec2(pickedMin.x + squareSize, pickedMin.y + squareSize), kPickedSquareColor);
+
+    // Lichess-style destination markers: a small filled dot for a quiet move, a ring hugging
+    // the inside edge of the square for a capture - including en passant, whose destination
+    // square is itself empty, so board[move.To] alone wouldn't catch it.
+    for (const MoveGenerator::LegalMove& move : Drag.LegalDestinations)
+    {
+        const ImVec2 center = SquareCenter(move.To, blackAtBottom, boardOrigin, squareSize);
+        const bool isCapture = move.IsEnPassant || board[move.To].has_value();
+        if (isCapture)
+            drawList->AddCircle(center, squareSize * 0.46f, kLegalDestinationColor, 0, squareSize * 0.07f);
+        else
+            drawList->AddCircleFilled(center, squareSize * 0.16f, kLegalDestinationColor);
+    }
+}
+
+void BoardStatePanel::Impl::DrawPromotionPopup(SandboxSession& sandbox, const BoardState& board, bool blackAtBottom, ImVec2 boardOrigin, float squareSize)
+{
+    if (!PendingPromotionChoices)
+        return;
+
+    const int destFile = PendingPromotionSquare % 8;
+    const int destRank = PendingPromotionSquare / 8;
+    const ImVec2 popupPos = SquareMin(destFile, destRank, blackAtBottom, boardOrigin, squareSize);
+    ImGui::SetNextWindowPos(popupPos);
+
+    if (ImGui::BeginPopup("SandboxPromotionPicker"))
+    {
+        // Copied out (not iterated in place) since a clicked choice mutates/resets
+        // PendingPromotionChoices below - iterating the optional's own vector while resetting
+        // it mid-loop would be undefined behavior. The board hasn't been mutated by PlayMove
+        // yet at this point, so choices.front().From (the pawn's square) still reflects who's
+        // promoting.
+        const std::vector<MoveGenerator::LegalMove> choices = *PendingPromotionChoices;
+        const PieceColor promotingColor = (!choices.empty() && board[choices.front().From]) ? board[choices.front().From]->Color : sandbox.GetSideToMove();
+
+        std::optional<MoveGenerator::LegalMove> chosen;
+        for (const MoveGenerator::LegalMove& choice : choices)
+        {
+            ImGui::PushID(static_cast<int>(*choice.Promotion));
+            const GLuint texture = PieceTextures[TextureIndex(Piece{*choice.Promotion, promotingColor})];
+            const bool clicked = (texture != 0) ? ImGui::ImageButton("##promo", static_cast<ImTextureID>(texture), ImVec2(squareSize, squareSize)) : ImGui::Button("?", ImVec2(squareSize, squareSize));
+            if (clicked)
+                chosen = choice;
+            ImGui::PopID();
+            ImGui::SameLine();
+        }
+
+        if (chosen)
+        {
+            sandbox.PlayMove(*chosen);
+            PendingPromotionChoices.reset();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    else
+    {
+        // Closed without a selection (e.g. clicked away) - drop the pending state so it
+        // doesn't linger and re-suppress interaction forever.
+        PendingPromotionChoices.reset();
+    }
+}
 
 BoardStatePanel::BoardStatePanel(EngineInfoPanel& liveEnginePanel, EngineInfoPanel& sandboxEnginePanel, SandboxSession& sandbox)
     : m_LiveEnginePanel(&liveEnginePanel), m_SandboxEnginePanel(&sandboxEnginePanel), m_Sandbox(&sandbox), m_Impl(std::make_unique<Impl>())
@@ -294,31 +549,12 @@ void BoardStatePanel::SaveSettings() const
     // file (Engine/Strength/Autoplay/etc.) - this panel only ever touches its own "Display"
     // section, on top of whatever's already there. ControlsPanel::SaveSettings() does the
     // identical read-merge for the same reason, in the other direction.
-    inih::INIReader ini;
-    if (std::filesystem::exists(path))
-    {
-        try
-        {
-            ini = inih::INIReader(path);
-        }
-        catch (const std::exception& e)
-        {
-            LOG_WARN("BoardStatePanel::SaveSettings: failed to read existing '{}' before merging: {} - other panels' settings may be lost", path, e.what());
-        }
-    }
+    inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "BoardStatePanel::SaveSettings");
 
     SettingsIni::UpsertEntry(ini, "Display", "ShowLookaheadArrow", m_ShowLookaheadArrow);
     SettingsIni::UpsertEntry(ini, "Display", "ShowAlternateMoves", m_ShowAlternateMoves);
 
-    try
-    {
-        inih::INIWriter::write(path, ini, /*overwrite=*/true);
-        LOG_INFO("BoardStatePanel::SaveSettings: wrote settings to {}", path);
-    }
-    catch (const std::exception& e)
-    {
-        LOG_ERROR("BoardStatePanel::SaveSettings: failed to write '{}': {}", path, e.what());
-    }
+    SettingsIni::SaveMerged(path, ini, "BoardStatePanel::SaveSettings");
 }
 
 void BoardStatePanel::LoadTextures()
@@ -354,36 +590,6 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
     ImGui::SameLine();
     ImGuiUtils::CheckboxTextWrapped("##ShowAlternateMoves", &m_ShowAlternateMoves, "Show alternate moves");
     ImGui::Separator();
-
-    constexpr float kEvalBarWidth = 28.0f;
-    constexpr float kEvalBarGap = 12.0f;
-    constexpr float kMinSquareSize = 20.0f;
-    constexpr ImU32 kLightSquareColor = IM_COL32(0xEE, 0xEE, 0xD2, 255);
-    constexpr ImU32 kDarkSquareColor = IM_COL32(0x76, 0x96, 0x56, 255);
-    constexpr ImU32 kSourceHighlightColor = IM_COL32(0xFF, 0xCD, 0x00, 110);
-    constexpr ImU32 kDestHighlightColor = IM_COL32(0x00, 0xC8, 0x5A, 110);
-    constexpr ImU32 kArrowColor = IM_COL32(0xFF, 0x8C, 0x00, 220);
-    constexpr ImU32 kLookaheadArrowColor = IM_COL32(0x3A, 0x8C, 0xFF, 200);
-    constexpr ImU32 kMatingArrowColor = IM_COL32(0xFF, 0x2A, 0x2A, 235);
-    constexpr ImU32 kCheckHighlightColor = IM_COL32(0xFF, 0x1A, 0x1A, 150);
-    constexpr ImU32 kMateBannerBg = IM_COL32(0x20, 0x00, 0x00, 210);
-    constexpr ImU32 kMateBannerText = IM_COL32(0xFF, 0x70, 0x70, 255);
-    constexpr ImU32 kPickedSquareColor = IM_COL32(0xFF, 0xFF, 0x00, 90);
-    constexpr ImU32 kLegalDestinationColor = IM_COL32(0x00, 0x00, 0x00, 140);
-
-    // One color per alternate candidate move (see GameSession::GetAlternateMoves()), in order -
-    // deliberately distinct from the primary (orange/red) and lookahead (blue) arrow colors,
-    // and deliberately much more transparent than the primary arrow's alpha 220 - low enough
-    // that the primary (best) move still reads as the obvious, solid one at a glance, with each
-    // further alternate fading a bit more to reinforce "less preferred than the last." More
-    // entries than GameSession::kMultiPvLines - 1 ever needs today, so raising that constant
-    // doesn't immediately run out of colors; alternates beyond the array's length reuse its
-    // last entry rather than indexing out of bounds.
-    constexpr ImU32 kAlternateArrowColors[] = {
-        IM_COL32(0xC9, 0xA8, 0x00, 130),  // 2nd choice - gold
-        IM_COL32(0x9C, 0x27, 0xB0, 100),  // 3rd choice - purple
-        IM_COL32(0x00, 0xAC, 0xC1, 75),   // 4th choice - teal
-    };
 
     const bool sandboxActive = m_Sandbox->IsActive();
     EngineInfoPanel& activeEnginePanel = sandboxActive ? *m_SandboxEnginePanel : *m_LiveEnginePanel;
@@ -437,164 +643,23 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
         m_Impl->AnnotationArrows.clear();
     m_Impl->LastSeenBoard = board;
 
-    if (m_Impl->BoardTexture != 0)
-    {
-        drawList->AddImage(static_cast<ImTextureID>(m_Impl->BoardTexture), boardOrigin, boardEnd);
-    }
-    else
-    {
-        // Board texture missing/failed to load - draw a plain checkerboard instead so the
-        // panel still shows something usable rather than a blank window.
-        for (int rank = 0; rank < 8; ++rank)
-        {
-            for (int file = 0; file < 8; ++file)
-            {
-                const ImVec2 squareMin = SquareMin(file, rank, blackAtBottom, boardOrigin, squareSize);
-                const ImVec2 squareMax(squareMin.x + squareSize, squareMin.y + squareSize);
-                drawList->AddRectFilled(squareMin, squareMax, IsLightSquare(file, rank) ? kLightSquareColor : kDarkSquareColor);
-            }
-        }
-    }
+    DrawBoardBackground(drawList, m_Impl->BoardTexture, boardOrigin, boardEnd, squareSize, blackAtBottom);
 
-    // --- Sandbox mouse interaction --------------------------------------------------------
-    // A drag/click always targets the sandbox layer, seeding it (via GameSession's live
-    // position, already mirrored into m_Sandbox when inactive) on the very first move - never
-    // the live site. Suppressed entirely while a promotion popup is open, so a click behind the
-    // popup can't also start picking up a new piece.
-    Impl::DragState& drag = m_Impl->Drag;
+    // Sandbox mouse interaction - a drag/click always targets the sandbox layer, seeding it
+    // (via GameSession's live position, already mirrored into m_Sandbox when inactive) on the
+    // very first move - never the live site. Suppressed entirely while a promotion popup is
+    // open, so a click behind the popup can't also start picking up a new piece. squareUnderMouse
+    // is also read further below (the annotation-arrow live preview), so it's computed here
+    // rather than inside UpdateSandboxInteraction() itself.
     const bool interactionEnabled = !m_Impl->PendingPromotionChoices.has_value();
     const ImVec2 mousePos = ImGui::GetIO().MousePos;
     const std::optional<int> squareUnderMouse = SquareAtScreenPos(mousePos, boardOrigin, squareSize, blackAtBottom);
     const bool windowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 
-    const auto isLegalDestination = [&](int square) { return std::any_of(drag.LegalDestinations.begin(), drag.LegalDestinations.end(), [square](const MoveGenerator::LegalMove& m) { return m.To == square; }); };
-
-    const auto resolveDrop = [&](int destSquare) {
-        std::vector<MoveGenerator::LegalMove> matches;
-        for (const MoveGenerator::LegalMove& move : drag.LegalDestinations)
-        {
-            if (move.To == destSquare)
-                matches.push_back(move);
-        }
-
-        drag = Impl::DragState{};
-
-        if (matches.empty())
-            return;  // illegal drop - snap back (rendering just resumes from m_Sandbox->GetBoard())
-
-        if (matches.size() == 1)
-        {
-            m_Sandbox->PlayMove(matches.front());
-            return;
-        }
-
-        m_Impl->PendingPromotionChoices = std::move(matches);
-        m_Impl->PendingPromotionSquare = destSquare;
-        ImGui::OpenPopup("SandboxPromotionPicker");
-    };
-
     if (interactionEnabled)
-    {
-        // Left-clicking the board clears any drawn planning arrows - chess.com's own
-        // convention (left-click dismisses annotations; only right-click-drag creates/removes
-        // them). Fires regardless of what else this click does (pick up a piece, play a move,
-        // deselect) - matches "clicking to interact with the board" broadly, not just empty
-        // squares.
-        if (squareUnderMouse && windowHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            m_Impl->AnnotationArrows.clear();
+        m_Impl->UpdateSandboxInteraction(*m_Sandbox, board, squareUnderMouse, windowHovered);
 
-        if (drag.CurrentMode != Impl::DragState::Mode::Dragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && squareUnderMouse && (drag.CurrentMode != Impl::DragState::Mode::Idle || windowHovered))
-        {
-            const int square = *squareUnderMouse;
-            const std::optional<Piece>& clickedPiece = board[square];
-
-            if (drag.CurrentMode == Impl::DragState::Mode::PickedUp && isLegalDestination(square))
-            {
-                resolveDrop(square);
-            }
-            else if (clickedPiece && clickedPiece->Color == m_Sandbox->GetSideToMove())
-            {
-                std::vector<MoveGenerator::LegalMove> legalMoves = m_Sandbox->GetLegalMovesFrom(square);
-                if (!legalMoves.empty())
-                {
-                    drag.CurrentMode = Impl::DragState::Mode::PickedUp;
-                    drag.PickedSquare = square;
-                    drag.LegalDestinations = std::move(legalMoves);
-                }
-                else
-                {
-                    drag = Impl::DragState{};
-                }
-            }
-            else
-            {
-                drag = Impl::DragState{};
-            }
-        }
-
-        if (drag.CurrentMode == Impl::DragState::Mode::PickedUp && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 4.0f))
-            drag.CurrentMode = Impl::DragState::Mode::Dragging;
-
-        if (drag.CurrentMode == Impl::DragState::Mode::Dragging && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-        {
-            if (squareUnderMouse)
-                resolveDrop(*squareUnderMouse);
-            else
-                drag = Impl::DragState{};
-        }
-
-        // Right-click-drag draws/toggles a planning arrow (see the "annotation arrows"
-        // rendering block below); a plain right-click tap (no drag - released on the same
-        // square it started on) instead falls back to its previous job of deselecting an
-        // in-progress sandbox pick-up, so that behavior isn't lost.
-        Impl::AnnotationDragState& annotationDrag = m_Impl->AnnotationDrag;
-
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && squareUnderMouse && windowHovered)
-        {
-            annotationDrag.Active = true;
-            annotationDrag.StartSquare = *squareUnderMouse;
-        }
-
-        if (annotationDrag.Active && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-        {
-            annotationDrag.Active = false;
-
-            if (squareUnderMouse && *squareUnderMouse != annotationDrag.StartSquare)
-            {
-                const std::pair<int, int> arrow{annotationDrag.StartSquare, *squareUnderMouse};
-                std::vector<std::pair<int, int>>& arrows = m_Impl->AnnotationArrows;
-                const auto it = std::find(arrows.begin(), arrows.end(), arrow);
-                if (it != arrows.end())
-                    arrows.erase(it);  // dragging the same arrow again removes it
-                else
-                    arrows.push_back(arrow);
-            }
-            else if (drag.CurrentMode != Impl::DragState::Mode::Idle)
-            {
-                drag = Impl::DragState{};
-            }
-        }
-    }
-
-    if (drag.CurrentMode != Impl::DragState::Mode::Idle)
-    {
-        const ImVec2 pickedMin = SquareMin(drag.PickedSquare % 8, drag.PickedSquare / 8, blackAtBottom, boardOrigin, squareSize);
-        drawList->AddRectFilled(pickedMin, ImVec2(pickedMin.x + squareSize, pickedMin.y + squareSize), kPickedSquareColor);
-
-        // Lichess-style destination markers: a small filled dot for a quiet move, a ring
-        // hugging the inside edge of the square for a capture - including en passant, whose
-        // destination square is itself empty, so board[move.To] alone wouldn't catch it.
-        for (const MoveGenerator::LegalMove& move : drag.LegalDestinations)
-        {
-            const ImVec2 center = SquareCenter(move.To, blackAtBottom, boardOrigin, squareSize);
-            const bool isCapture = move.IsEnPassant || board[move.To].has_value();
-            if (isCapture)
-                drawList->AddCircle(center, squareSize * 0.46f, kLegalDestinationColor, 0, squareSize * 0.07f);
-            else
-                drawList->AddCircleFilled(center, squareSize * 0.16f, kLegalDestinationColor);
-        }
-    }
-    // --- End sandbox mouse interaction (rendering continues below) ------------------------
+    m_Impl->DrawDragHighlights(drawList, board, blackAtBottom, boardOrigin, squareSize);
 
     const std::optional<std::string> primarySuggestedMove = sandboxActive ? m_Sandbox->GetSuggestedMove() : liveSuggestedMove;
     const std::optional<SuggestedSquares> suggested = ComputeSuggestedSquares(primarySuggestedMove, blackAtBottom, boardOrigin, squareSize);
@@ -622,7 +687,7 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
 
             // Skip the piece currently being dragged here - redrawn below, centered on the
             // cursor, so it renders on top of everything else instead of under the highlights.
-            if (drag.CurrentMode == Impl::DragState::Mode::Dragging && square == drag.PickedSquare)
+            if (m_Impl->Drag.CurrentMode == Impl::DragState::Mode::Dragging && square == m_Impl->Drag.PickedSquare)
                 continue;
 
             const std::optional<Piece>& piece = board[square];
@@ -639,9 +704,9 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
         }
     }
 
-    if (drag.CurrentMode == Impl::DragState::Mode::Dragging)
+    if (m_Impl->Drag.CurrentMode == Impl::DragState::Mode::Dragging)
     {
-        const std::optional<Piece>& draggedPiece = board[drag.PickedSquare];
+        const std::optional<Piece>& draggedPiece = board[m_Impl->Drag.PickedSquare];
         const GLuint texture = draggedPiece ? m_Impl->PieceTextures[TextureIndex(*draggedPiece)] : 0;
         if (texture != 0)
         {
@@ -694,8 +759,9 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
     if (suggested)
         DrawArrow(drawList, suggested->FromCenter, suggested->ToCenter, mateInfo ? kMatingArrowColor : kArrowColor, std::max(squareSize * 0.1f, 3.0f));
 
-    // User-drawn planning arrows (see the right-click-drag handling above) - drawn on top of
-    // the engine's own arrows since they're the player's own active annotations.
+    // User-drawn planning arrows (see the right-click-drag handling in UpdateSandboxInteraction())
+    // - drawn on top of the engine's own arrows since they're the player's own active
+    // annotations.
     constexpr ImU32 kAnnotationArrowColor = IM_COL32(0x15, 0x78, 0x1B, 215);
     const float annotationThickness = std::max(squareSize * 0.09f, 2.5f);
     for (const auto& [fromSquare, toSquare] : m_Impl->AnnotationArrows)
@@ -728,52 +794,9 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
     ImGui::Dummy(ImVec2(kEvalBarWidth + kEvalBarGap + boardSize, boardSize));
 
     // Promotion picker popup - positioned over the destination square, 4 piece-texture
-    // buttons. Opened by resolveDrop() above when a drop matched more than one legal move.
-    if (m_Impl->PendingPromotionChoices)
-    {
-        const int destFile = m_Impl->PendingPromotionSquare % 8;
-        const int destRank = m_Impl->PendingPromotionSquare / 8;
-        const ImVec2 popupPos = SquareMin(destFile, destRank, blackAtBottom, boardOrigin, squareSize);
-        ImGui::SetNextWindowPos(popupPos);
-
-        if (ImGui::BeginPopup("SandboxPromotionPicker"))
-        {
-            // Copied out (not iterated in place) since a clicked choice mutates/resets
-            // m_Impl->PendingPromotionChoices below - iterating the optional's own vector while
-            // resetting it mid-loop would be undefined behavior. The board hasn't been mutated
-            // by PlayMove yet at this point, so choices.front().From (the pawn's square) still
-            // reflects who's promoting.
-            const std::vector<MoveGenerator::LegalMove> choices = *m_Impl->PendingPromotionChoices;
-            const PieceColor promotingColor = (!choices.empty() && board[choices.front().From]) ? board[choices.front().From]->Color : m_Sandbox->GetSideToMove();
-
-            std::optional<MoveGenerator::LegalMove> chosen;
-            for (const MoveGenerator::LegalMove& choice : choices)
-            {
-                ImGui::PushID(static_cast<int>(*choice.Promotion));
-                const GLuint texture = m_Impl->PieceTextures[TextureIndex(Piece{*choice.Promotion, promotingColor})];
-                const bool clicked = (texture != 0) ? ImGui::ImageButton("##promo", static_cast<ImTextureID>(texture), ImVec2(squareSize, squareSize)) : ImGui::Button("?", ImVec2(squareSize, squareSize));
-                if (clicked)
-                    chosen = choice;
-                ImGui::PopID();
-                ImGui::SameLine();
-            }
-
-            if (chosen)
-            {
-                m_Sandbox->PlayMove(*chosen);
-                m_Impl->PendingPromotionChoices.reset();
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::EndPopup();
-        }
-        else
-        {
-            // Closed without a selection (e.g. clicked away) - drop the pending state so it
-            // doesn't linger and re-suppress interaction forever.
-            m_Impl->PendingPromotionChoices.reset();
-        }
-    }
+    // buttons. Opened by UpdateSandboxInteraction()'s resolveDrop() above when a drop matched
+    // more than one legal move.
+    m_Impl->DrawPromotionPopup(*m_Sandbox, board, blackAtBottom, boardOrigin, squareSize);
 
     if (accuracyPercent)
         ImGui::Text("Accuracy: %.1f%%", *accuracyPercent);

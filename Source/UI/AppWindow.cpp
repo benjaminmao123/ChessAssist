@@ -136,6 +136,10 @@ void ApplyModernDarkTheme()
 struct AppWindow::Impl
 {
     GLFWwindow* Window = nullptr;
+
+    // io.IniFilename only stores a pointer, not a copy - this has to outlive the ImGui context
+    // (set once in Init(), read by Shutdown()'s final SaveIniSettingsToDisk() flush).
+    std::string IniFilePath;
 };
 
 AppWindow::AppWindow()
@@ -175,6 +179,15 @@ bool AppWindow::Init(int width, int height, const std::string& title)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+    // Pinned next to the executable instead of ImGui's default (CWD-relative) "imgui.ini", so
+    // the saved dock layout is found reliably regardless of how the app was launched. ImGui
+    // loads this automatically on the first NewFrame() and autosaves it periodically once
+    // dirty - App::Run() reads whether this file already existed at startup (before that first
+    // load) to decide whether to force its own default dock layout or leave the user's
+    // restored one alone (see SetupDefaultDockLayout()'s comment).
+    m_Impl->IniFilePath = ExecutablePathUtil::GetImGuiIniFilePath().string();
+    io.IniFilename = m_Impl->IniFilePath.c_str();
+
     ApplyModernDarkTheme();
     ImGui::GetStyle().ScaleAllSizes(kUiScale);
     LoadUiFont(io);
@@ -189,6 +202,12 @@ void AppWindow::Shutdown()
 {
     if (!m_Impl->Window)
         return;
+
+    // Flushes any layout change still pending ImGui's own periodic autosave (see Init()'s
+    // io.IniFilename comment) - without this, rearranging docked windows and then closing the
+    // app shortly after could silently lose the change instead of persisting it for next
+    // launch.
+    ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

@@ -208,6 +208,21 @@ std::string ReplaceAll(std::string text, std::string_view token, std::string_vie
     }
     return text;
 }
+
+// Shared parse/catch boilerplate behind every ParseXxx() below - nullopt on any malformed/
+// unparsable JSON text, same as each of them already documents for its own jsonResult
+// parameter.
+std::optional<nlohmann::json> TryParseJson(std::string_view jsonText)
+{
+    try
+    {
+        return nlohmann::json::parse(jsonText);
+    }
+    catch (const nlohmann::json::exception&)
+    {
+        return std::nullopt;
+    }
+}
 }  // namespace
 
 namespace ChessSiteAdapter
@@ -245,29 +260,20 @@ std::string ExtractionScript(ChessSite)
 
 std::optional<SiteGameState> ParseExtractionResult(std::string_view jsonResult)
 {
-    nlohmann::json parsed;
-    try
-    {
-        parsed = nlohmann::json::parse(jsonResult);
-    }
-    catch (const nlohmann::json::exception&)
-    {
-        return std::nullopt;
-    }
-
-    if (parsed.is_null() || !parsed.is_object() || !parsed.contains("moves") || !parsed["moves"].is_array())
+    const std::optional<nlohmann::json> parsed = TryParseJson(jsonResult);
+    if (!parsed || parsed->is_null() || !parsed->is_object() || !parsed->contains("moves") || !(*parsed)["moves"].is_array())
         return std::nullopt;
 
     SiteGameState state;
-    for (const nlohmann::json& move : parsed["moves"])
+    for (const nlohmann::json& move : (*parsed)["moves"])
     {
         if (!move.is_string())
             return std::nullopt;
         state.SanMoves.push_back(move.get<std::string>());
     }
 
-    if (parsed.contains("blackAtBottom") && parsed["blackAtBottom"].is_boolean())
-        state.PlayingAsBlack = parsed["blackAtBottom"].get<bool>();
+    if (parsed->contains("blackAtBottom") && (*parsed)["blackAtBottom"].is_boolean())
+        state.PlayingAsBlack = (*parsed)["blackAtBottom"].get<bool>();
 
     return state;
 }
@@ -287,17 +293,8 @@ std::string SquareCenterScript(std::string_view fromSquare, std::string_view toS
 
 std::optional<SquareCenters> ParseSquareCenters(std::string_view jsonResult)
 {
-    nlohmann::json parsed;
-    try
-    {
-        parsed = nlohmann::json::parse(jsonResult);
-    }
-    catch (const nlohmann::json::exception&)
-    {
-        return std::nullopt;
-    }
-
-    if (!parsed.is_object() || !parsed.contains("from") || !parsed.contains("to"))
+    const std::optional<nlohmann::json> parsed = TryParseJson(jsonResult);
+    if (!parsed || !parsed->is_object() || !parsed->contains("from") || !parsed->contains("to"))
         return std::nullopt;
 
     const auto readPoint = [](const nlohmann::json& point) -> std::optional<SquarePoint> {
@@ -306,8 +303,8 @@ std::optional<SquareCenters> ParseSquareCenters(std::string_view jsonResult)
         return SquarePoint{point["x"].get<double>(), point["y"].get<double>()};
     };
 
-    const std::optional<SquarePoint> from = readPoint(parsed["from"]);
-    const std::optional<SquarePoint> to = readPoint(parsed["to"]);
+    const std::optional<SquarePoint> from = readPoint((*parsed)["from"]);
+    const std::optional<SquarePoint> to = readPoint((*parsed)["to"]);
     if (!from || !to)
         return std::nullopt;
 
@@ -329,19 +326,10 @@ std::string PromotionPickerScript(char promotionLetter, char promotingColor)
 
 std::optional<SquarePoint> ParsePromotionTarget(std::string_view jsonResult)
 {
-    nlohmann::json parsed;
-    try
-    {
-        parsed = nlohmann::json::parse(jsonResult);
-    }
-    catch (const nlohmann::json::exception&)
-    {
-        return std::nullopt;
-    }
-
-    if (!parsed.is_object() || !parsed.contains("x") || !parsed.contains("y") || !parsed["x"].is_number() || !parsed["y"].is_number())
+    const std::optional<nlohmann::json> parsed = TryParseJson(jsonResult);
+    if (!parsed || !parsed->is_object() || !parsed->contains("x") || !parsed->contains("y") || !(*parsed)["x"].is_number() || !(*parsed)["y"].is_number())
         return std::nullopt;
 
-    return SquarePoint{parsed["x"].get<double>(), parsed["y"].get<double>()};
+    return SquarePoint{(*parsed)["x"].get<double>(), (*parsed)["y"].get<double>()};
 }
 }  // namespace ChessSiteAdapter

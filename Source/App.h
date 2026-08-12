@@ -29,12 +29,15 @@ private:
     void PollGameSession();
 
     // Builds a fixed default dock layout (Controls left, Analysis Board large top-right, Log
-    // small bottom-right) via ImGui's DockBuilder API, called once on the very first frame -
-    // see Run(). Deliberately unconditional (not "only if no saved layout exists"): the
-    // in-repo default otherwise leaves whatever ad-hoc arrangement a prior session's
-    // imgui.ini happened to save, which is exactly the cramped/wasted-space layout this
-    // exists to fix. The user can still freely rearrange for the rest of the session -
-    // it's just not persisted across restarts.
+    // small bottom-right) via ImGui's DockBuilder API - called once, on the very first frame,
+    // but only when Run() finds no saved imgui.ini from a previous session (see its
+    // hasSavedLayout check). A fresh install otherwise starts from ImGui's undocked fallback
+    // (every window floating wherever it last defaulted to) instead of this sensible
+    // arrangement. Once a saved imgui.ini exists - whether from a previous run or this one,
+    // the moment the user rearranges anything - ImGui's own automatic load/autosave (see
+    // AppWindow::Init()'s io.IniFilename) takes over for good: this is never called again for
+    // that install, so the user's own layout is restored on every later launch instead of
+    // being reset back to this default.
     void SetupDefaultDockLayout(unsigned int dockspaceId);
 
     // Declaration order matters here: members are constructed in this order (and destroyed in

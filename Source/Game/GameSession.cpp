@@ -89,15 +89,6 @@ float ScoreToCentipawns(const SearchInfo& info)
     return static_cast<float>(info.ScoreCp.value_or(0));
 }
 
-// The same exponential-decay curve chess.com's own accuracy metric is built on: centipawn
-// loss -> a 0-100 per-move score. Clamped since the raw formula can slightly exceed 100 at
-// (near-)zero loss and go negative for very large losses.
-float ScoreLossToAccuracyPercent(float centipawnLoss)
-{
-    const float accuracy = 103.1668f * std::exp(-0.04354f * centipawnLoss) - 3.1669f;
-    return std::clamp(accuracy, 0.0f, 100.0f);
-}
-
 // Picks the artificial pre-move delay for a freshly queued autoplay move (see
 // GameSession::SetMoveDelay) - a fresh draw per call, not a shared/seeded sequence, since this
 // only ever needs to look unpredictable to whatever's watching the board, not be reproducible.
@@ -114,6 +105,17 @@ int RandomMoveDelayMs(int minMs, int maxMs)
 GameSession::GameSession(EngineController& controller)
     : m_Controller(&controller)
 {
+}
+
+PieceColor GameSession::MyColor() const
+{
+    return m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+}
+
+void GameSession::ConfigureMultiPv(EngineController& controller)
+{
+    if (kMultiPvLines > 1)
+        controller.SetOption("MultiPV", std::to_string(kMultiPvLines));
 }
 
 std::expected<void, BrowserError> GameSession::LaunchBrowser(const std::filesystem::path& profileDir, ChessSite site)
@@ -419,7 +421,7 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
 
     // See the member comments on m_RequestedForSide/m_BlackAtBottom for why this pairing is
     // safe to read from the reader thread without touching m_Tracker directly.
-    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    const PieceColor myColor = MyColor();
     const PieceColor requestedSide = m_RequestedForSide.load();
     const bool isOurTurn = requestedSide == myColor;
 
@@ -440,17 +442,8 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
         // move - see GetAccuracyPercent()'s comment. Deliberately independent of
         // m_AutoplayEnabled below: accuracy tracks whatever actually got played regardless of
         // who/what played it.
-        std::scoped_lock lock(m_AccuracyMutex);
-        if (m_PendingBeforeMoveEvalCp && m_LatestAfterMoveEvalCp)
-        {
-            const float lossCp = std::max(0.0f, *m_PendingBeforeMoveEvalCp - *m_LatestAfterMoveEvalCp);
-            const float moveAccuracy = ScoreLossToAccuracyPercent(lossCp);
-            m_AccuracySumPercent += moveAccuracy;
-            ++m_AccuracyMoveCount;
-            LOG_INFO("OnEngineBestMove: scored the tracked player's last move at {:.1f}% accuracy (avg {:.1f}% over {} move(s))", moveAccuracy, m_AccuracySumPercent / m_AccuracyMoveCount, m_AccuracyMoveCount);
-        }
-        m_PendingBeforeMoveEvalCp.reset();
-        m_LatestAfterMoveEvalCp.reset();
+        if (const std::optional<AccuracyTracker::MoveScore> score = m_Accuracy.TryScoreMove())
+            LOG_INFO("OnEngineBestMove: scored the tracked player's last move at {:.1f}% accuracy (avg {:.1f}% over {} move(s))", score->MoveAccuracyPercent, score->RunningAveragePercent, score->MoveCount);
     }
 
     if (!m_AutoplayEnabled.load())
@@ -471,7 +464,7 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
 void GameSession::OnEngineInfo(const SearchInfo& info)
 {
     // Same "is this analysis actually for our turn" gating as OnEngineBestMove.
-    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    const PieceColor myColor = MyColor();
     const bool isOurTurn = m_RequestedForSide.load() == myColor;
 
     // Alternate-line candidate moves (see GetAlternateMoves()) - collected regardless of whose
@@ -479,11 +472,7 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     // everything below, which (accuracy tracking, the premove candidate) must only ever look at
     // the primary (multipv 1) line - a multipv>=2 line is a deliberately weaker alternative, not
     // a real read on the position.
-    if (info.MultiPvIndex >= 2 && !info.Pv.empty())
-    {
-        std::scoped_lock lock(m_AlternateMovesMutex);
-        m_AlternateMoves[info.MultiPvIndex] = info.Pv.front();
-    }
+    m_AlternateMoves.OnInfo(info);
 
     if (info.MultiPvIndex != 1)
         return;
@@ -496,11 +485,10 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
         // off in OnEngineBestMove once the relevant search completes. See
         // GetAccuracyPercent()'s comment for the full scheme.
         const float perspectiveCp = ScoreToCentipawns(info) * (isOurTurn ? 1.0f : -1.0f);
-        std::scoped_lock lock(m_AccuracyMutex);
         if (isOurTurn)
-            m_PendingBeforeMoveEvalCp = perspectiveCp;
+            m_Accuracy.RecordBeforeEval(perspectiveCp);
         else
-            m_LatestAfterMoveEvalCp = perspectiveCp;
+            m_Accuracy.RecordAfterEval(perspectiveCp);
     }
 
     // A premove candidate only makes sense when the PV we're reading is our own search, not
@@ -514,8 +502,7 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     if (info.Pv.size() < 3)
         return;
 
-    std::scoped_lock lock(m_PremoveMutex);
-    m_PremoveCandidate = PremoveCandidate{info.Pv[0], info.Pv[1], info.Pv[2]};
+    m_Premove.Update(info.Pv[0], info.Pv[1], info.Pv[2]);
 }
 
 void GameSession::Tick()
@@ -554,7 +541,7 @@ std::optional<std::string> GameSession::GetSuggestedMove() const
 
 std::optional<std::string> GameSession::GetLookaheadMove() const
 {
-    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    const PieceColor myColor = MyColor();
     const bool isOurTurn = m_Tracker.GetSideToMove() == myColor;
 
     // Resolved before touching m_PremoveMutex, not nested within its lock - GetSuggestedMove()
@@ -564,21 +551,17 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     if (!anchor)
         return std::nullopt;
 
-    std::string intermediateMove;
-    std::string lookaheadMove;
-    {
-        std::scoped_lock lock(m_PremoveMutex);
-        if (!m_PremoveCandidate || m_PremoveCandidate->ExpectedOwnMove != *anchor)
-            return std::nullopt;  // stale - the candidate no longer describes the current anchor
+    const std::optional<PremoveTracker::Candidate> candidate = m_Premove.Peek();
+    if (!candidate || candidate->ExpectedOwnMove != *anchor)
+        return std::nullopt;  // stale - the candidate no longer describes the current anchor
 
-        // On our own turn, the board still shows the position *before* our own move
-        // (ExpectedOwnMove) - so the lookahead (PredictedOpponentMove) is only actually legal
-        // one ply beyond what's displayed. On the opponent's turn, our own move already
-        // happened for real (it's reflected in m_Rules already) - only their predicted reply
-        // is still the missing ply before OurResponse becomes legal.
-        intermediateMove = isOurTurn ? m_PremoveCandidate->ExpectedOwnMove : m_PremoveCandidate->PredictedOpponentMove;
-        lookaheadMove = isOurTurn ? m_PremoveCandidate->PredictedOpponentMove : m_PremoveCandidate->OurResponse;
-    }
+    // On our own turn, the board still shows the position *before* our own move
+    // (ExpectedOwnMove) - so the lookahead (PredictedOpponentMove) is only actually legal
+    // one ply beyond what's displayed. On the opponent's turn, our own move already
+    // happened for real (it's reflected in m_Rules already) - only their predicted reply
+    // is still the missing ply before OurResponse becomes legal.
+    const std::string& intermediateMove = isOurTurn ? candidate->ExpectedOwnMove : candidate->PredictedOpponentMove;
+    const std::string& lookaheadMove = isOurTurn ? candidate->PredictedOpponentMove : candidate->OurResponse;
 
     // Validate against a position with the intermediate move actually applied, rather than
     // trusting the string and drawing it straight onto the current board - a pawn move
@@ -586,47 +569,26 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     // capturing en passant a pawn that only arrives via our own not-yet-played ExpectedOwnMove
     // double push would draw a pawn "capturing" on a square that's genuinely empty on the
     // board as displayed right now.
-    MoveGenerator::PositionState position{m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget()};
-    const std::optional<MoveGenerator::LegalMove> intermediate = MoveGenerator::FindLegalMove(position, intermediateMove);
-    if (!intermediate)
+    const MoveGenerator::PositionState position{m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget()};
+    if (!MoveGenerator::VerifyTwoPlyContinuation(position, intermediateMove, lookaheadMove))
         return std::nullopt;  // shouldn't happen (it's the engine's own PV/our actual last move), but never draw an unverified arrow
-
-    MoveGenerator::ApplyMove(position, *intermediate);
-
-    if (!MoveGenerator::FindLegalMove(position, lookaheadMove))
-        return std::nullopt;
 
     return lookaheadMove;
 }
 
 std::vector<std::string> GameSession::GetAlternateMoves() const
 {
-    std::scoped_lock lock(m_AlternateMovesMutex);
-
-    std::vector<std::string> moves;
-    moves.reserve(m_AlternateMoves.size());
-    for (const auto& [multiPvIndex, move] : m_AlternateMoves)
-        moves.push_back(move);  // std::map iterates by key, so this is already index-ordered
-
-    return moves;
+    return m_AlternateMoves.GetMoves();
 }
 
 std::optional<float> GameSession::GetAccuracyPercent() const
 {
-    std::scoped_lock lock(m_AccuracyMutex);
-    if (m_AccuracyMoveCount == 0)
-        return std::nullopt;
-
-    return static_cast<float>(m_AccuracySumPercent / m_AccuracyMoveCount);
+    return m_Accuracy.GetPercent();
 }
 
 void GameSession::ResetAccuracy()
 {
-    std::scoped_lock lock(m_AccuracyMutex);
-    m_PendingBeforeMoveEvalCp.reset();
-    m_LatestAfterMoveEvalCp.reset();
-    m_AccuracySumPercent = 0.0;
-    m_AccuracyMoveCount = 0;
+    m_Accuracy.Reset();
 }
 
 void GameSession::SetEloTarget(std::optional<int> elo)
@@ -693,7 +655,7 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
     if (!m_PremoveEnabled.load() || !m_AutoplayEnabled.load())
         return false;
 
-    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    const PieceColor myColor = MyColor();
     if (m_Tracker.GetSideToMove() != myColor)
     {
         // lastAppliedMove was our own move (side to move just flipped to the opponent) - too
@@ -703,18 +665,11 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
         // its predicted opponent reply/response no longer describes the real position, so
         // discard it rather than risk it later matching the opponent's move by coincidence and
         // firing a response computed for a different position.
-        std::scoped_lock lock(m_PremoveMutex);
-        if (m_PremoveCandidate && m_PremoveCandidate->ExpectedOwnMove != lastAppliedMove)
-            m_PremoveCandidate.reset();
+        m_Premove.InvalidateIfMismatched(lastAppliedMove);
         return false;
     }
 
-    std::optional<PremoveCandidate> candidate;
-    {
-        std::scoped_lock lock(m_PremoveMutex);
-        candidate = m_PremoveCandidate;
-        m_PremoveCandidate.reset();
-    }
+    const std::optional<PremoveTracker::Candidate> candidate = m_Premove.Take();
 
     if (!candidate || candidate->PredictedOpponentMove != lastAppliedMove)
         return false;
@@ -730,11 +685,7 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
     // accuracy score for a move that was never actually evaluated. Clearing both here ensures
     // this move is skipped by GetAccuracyPercent(), matching its own documented "a Blitz/
     // premove-skipped position just isn't counted" intent instead of silently violating it.
-    {
-        std::scoped_lock lock(m_AccuracyMutex);
-        m_PendingBeforeMoveEvalCp.reset();
-        m_LatestAfterMoveEvalCp.reset();
-    }
+    m_Accuracy.ClearPendingEvals();
 
     return true;
 }
@@ -776,10 +727,7 @@ void GameSession::RequestEngineMove(bool quickVerify)
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
     }
-    {
-        std::scoped_lock lock(m_AlternateMovesMutex);
-        m_AlternateMoves.clear();
-    }
+    m_AlternateMoves.Clear();
 
     m_RequestedForSide = m_Tracker.GetSideToMove();
     m_InitialMoveRequested = true;
@@ -791,7 +739,7 @@ void GameSession::RequestEngineMove(bool quickVerify)
     // immediately, the same way OnEngineBestMove publishes an engine result for our own turn
     // (see QueueAutoplayMove) - the on-board arrow and manual "play now" hotkey both keep
     // working, and the artificial wait-time delay still applies.
-    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    const PieceColor myColor = MyColor();
     bool wasBookMove = false;
     if (m_RequestedForSide.load() == myColor && m_OpeningBookEnabled && m_OpeningBook.IsLoaded())
     {

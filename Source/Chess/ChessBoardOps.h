@@ -35,6 +35,20 @@ PieceColor Opposite(PieceColor color);
 // legality - callers must only call this with an already-legal (or scratch/simulated) move.
 void ApplyMoveOnBoard(BoardState& board, int from, int to, std::optional<PieceType> promotion, std::optional<int> enPassantCaptureSquare);
 
+// Mutates board in place for a castling move: relocates the king (from/to) and rook (from/to)
+// to their destination squares, clearing both origin squares. Doesn't touch castling rights,
+// en passant target, or side to move - callers still own those (see
+// ForfeitCastlingRightsForMove for the rights half) since they're stored differently by
+// ChessRules (plain members) and MoveGenerator (PositionState fields). Doesn't validate
+// legality either, same contract as ApplyMoveOnBoard.
+void ApplyCastleOnBoard(BoardState& board, int kingFrom, int kingTo, int rookFrom, int rookTo);
+
+// The square a capturing pawn's en passant target pawn actually sits on: same file as the
+// capture's destination, same rank as the capturing pawn's origin. Shared by every caller that
+// resolves an en-passant capture (ChessRules::ApplySanMove, MoveGenerator's legality check and
+// ApplyMove) so the formula only lives in one place.
+[[nodiscard]] int EnPassantCaptureSquare(int from, int to);
+
 // Has-moved castling-rights forfeiture for one applied move: a king move forfeits both rights
 // for its side; either end of the move landing on a rook's home square (it moved away, or was
 // just captured there) forfeits that specific right - checked unconditionally against `from`/

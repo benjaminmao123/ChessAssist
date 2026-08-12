@@ -151,10 +151,7 @@ std::optional<std::string> ChessRules::ApplyCastle(bool kingside)
     if (!rook || rook->Type != PieceType::Rook || rook->Color != m_SideToMove)
         return std::nullopt;
 
-    m_Board[kingFrom] = std::nullopt;
-    m_Board[rookFrom] = std::nullopt;
-    m_Board[kingTo] = king;
-    m_Board[rookTo] = rook;
+    ChessBoardOps::ApplyCastleOnBoard(m_Board, kingFrom, kingTo, rookFrom, rookTo);
 
     m_EnPassantTarget.reset();
 
@@ -232,7 +229,7 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
         for (int candidate : candidates)
         {
             const bool isEnPassant = parsed->Type == PieceType::Pawn && parsed->IsCapture && !m_Board[destIndex];
-            const std::optional<int> epCapture = isEnPassant ? std::optional<int>(SquareIndex(parsed->DestFile, candidate / 8)) : std::nullopt;
+            const std::optional<int> epCapture = isEnPassant ? std::optional<int>(ChessBoardOps::EnPassantCaptureSquare(candidate, destIndex)) : std::nullopt;
 
             BoardState scratch = m_Board;
             ChessBoardOps::ApplyMoveOnBoard(scratch, candidate, destIndex, parsed->Promotion, epCapture);
@@ -252,7 +249,7 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
 
     std::optional<int> enPassantCaptureSquare;
     if (parsed->Type == PieceType::Pawn && parsed->IsCapture && !m_Board[destIndex])
-        enPassantCaptureSquare = SquareIndex(parsed->DestFile, source / 8);
+        enPassantCaptureSquare = ChessBoardOps::EnPassantCaptureSquare(source, destIndex);
 
     ChessBoardOps::ApplyMoveOnBoard(m_Board, source, destIndex, parsed->Promotion, enPassantCaptureSquare);
 

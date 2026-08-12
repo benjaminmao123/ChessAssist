@@ -59,6 +59,12 @@ compile_commands.json
 *.bak
 *.swp
 
+# Runtime-generated app config (written next to the built exe under out/, which is already
+# ignored above - this guards against a repeat of a stray root-level imgui.ini getting added
+# by hand)
+/imgui.ini
+/settings.ini
+
 # vcpkg
 vcpkg_installed/
 

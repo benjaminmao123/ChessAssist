@@ -65,43 +65,38 @@ std::filesystem::path GetSettingsFilePath()
     return GetCurrentExecutablePath().parent_path() / "settings.ini";
 }
 
-std::optional<std::filesystem::path> PromptForEnginePath()
+std::filesystem::path GetImGuiIniFilePath()
+{
+    return GetCurrentExecutablePath().parent_path() / "imgui.ini";
+}
+
+namespace
+{
+// Shared body behind PromptForEnginePath()/PromptForBookPath() - differ only in the dialog's
+// filter name/extension.
+std::optional<std::filesystem::path> PromptForFile(const char* filterName, const char* filterExtension)
 {
     nfdchar_t* outPath = nullptr;
-    nfdfilteritem_t filterItem = {"Executable Files", "exe"};
+    nfdfilteritem_t filterItem = {filterName, filterExtension};
 
     const nfdresult_t result = NFD_OpenDialog(&outPath, &filterItem, 1, nullptr);
 
-    if (result == NFD_OKAY)
-    {
-        std::filesystem::path path(outPath);
-        free(outPath);
-        return path;
-    }
-    else if (result == NFD_CANCEL)
-        return std::nullopt;
-    else
-        // Error occurred
-        return std::nullopt;
+    if (result != NFD_OKAY)
+        return std::nullopt;  // cancelled, or an error occurred
+
+    std::filesystem::path path(outPath);
+    free(outPath);
+    return path;
+}
+}  // namespace
+
+std::optional<std::filesystem::path> PromptForEnginePath()
+{
+    return PromptForFile("Executable Files", "exe");
 }
 
 std::optional<std::filesystem::path> PromptForBookPath()
 {
-    nfdchar_t* outPath = nullptr;
-    nfdfilteritem_t filterItem = {"Polyglot Book", "bin"};
-
-    const nfdresult_t result = NFD_OpenDialog(&outPath, &filterItem, 1, nullptr);
-
-    if (result == NFD_OKAY)
-    {
-        std::filesystem::path path(outPath);
-        free(outPath);
-        return path;
-    }
-    else if (result == NFD_CANCEL)
-        return std::nullopt;
-    else
-        // Error occurred
-        return std::nullopt;
+    return PromptForFile("Polyglot Book", "bin");
 }
 }  // namespace ExecutablePathUtil

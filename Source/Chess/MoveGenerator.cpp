@@ -27,7 +27,7 @@ bool LeavesOwnKingSafe(const PositionState& position, const LegalMove& move)
 
     std::optional<int> epCaptureSquare;
     if (move.IsEnPassant)
-        epCaptureSquare = SquareIndex(move.To % 8, move.From / 8);
+        epCaptureSquare = ChessBoardOps::EnPassantCaptureSquare(move.From, move.To);
 
     ChessBoardOps::ApplyMoveOnBoard(scratch, move.From, move.To, move.Promotion, epCaptureSquare);
 
@@ -259,6 +259,18 @@ std::optional<MoveGenerator::LegalMove> MoveGenerator::FindLegalMove(const Posit
     return std::nullopt;
 }
 
+bool MoveGenerator::VerifyTwoPlyContinuation(const PositionState& position, const std::string& firstUci, const std::string& secondUci)
+{
+    const std::optional<LegalMove> first = FindLegalMove(position, firstUci);
+    if (!first)
+        return false;
+
+    PositionState next = position;
+    ApplyMove(next, *first);
+
+    return FindLegalMove(next, secondUci).has_value();
+}
+
 void MoveGenerator::ApplyMove(PositionState& position, const LegalMove& move)
 {
     if (move.IsCastle)
@@ -268,12 +280,7 @@ void MoveGenerator::ApplyMove(PositionState& position, const LegalMove& move)
         const int rookFrom = SquareIndex(kingside ? 7 : 0, rank);
         const int rookTo = SquareIndex(kingside ? 5 : 3, rank);
 
-        const std::optional<Piece> king = position.Board[move.From];
-        const std::optional<Piece> rook = position.Board[rookFrom];
-        position.Board[move.From] = std::nullopt;
-        position.Board[rookFrom] = std::nullopt;
-        position.Board[move.To] = king;
-        position.Board[rookTo] = rook;
+        ChessBoardOps::ApplyCastleOnBoard(position.Board, move.From, move.To, rookFrom, rookTo);
 
         ChessBoardOps::ForfeitCastlingRightsForMove(position.Rights, PieceType::King, position.SideToMove, move.From, move.To);
         position.EnPassantTarget.reset();
@@ -285,7 +292,7 @@ void MoveGenerator::ApplyMove(PositionState& position, const LegalMove& move)
 
     std::optional<int> epCaptureSquare;
     if (move.IsEnPassant)
-        epCaptureSquare = SquareIndex(move.To % 8, move.From / 8);
+        epCaptureSquare = ChessBoardOps::EnPassantCaptureSquare(move.From, move.To);
 
     ChessBoardOps::ApplyMoveOnBoard(position.Board, move.From, move.To, move.Promotion, epCaptureSquare);
     ChessBoardOps::ForfeitCastlingRightsForMove(position.Rights, movedType, position.SideToMove, move.From, move.To);

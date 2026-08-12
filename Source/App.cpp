@@ -76,6 +76,12 @@ int App::Run()
     // earlier - see BoardStatePanel::LoadTextures()'s comment.
     m_BoardStatePanel.LoadTextures();
 
+    // Checked once, right after Init() (which points ImGui's own io.IniFilename at this same
+    // path - see its comment) but before the first frame actually loads it - a saved imgui.ini
+    // from a previous session means the user already arranged windows the way they want, so
+    // SetupDefaultDockLayout() below must NOT stomp it.
+    const bool hasSavedLayout = std::filesystem::exists(ExecutablePathUtil::GetImGuiIniFilePath());
+
     // UCI "score" is relative to whichever side the search is analyzing for, not to White -
     // GameSession::GetRequestedSide() (safe from any thread, see its comment) lets the panel
     // flip the sign into the conventional "positive = good for White" display. Also fans out
@@ -105,8 +111,8 @@ int App::Run()
     // line never disrupts or competes with m_Controller's own live-game analysis loop above.
     if (const auto sandboxStartResult = m_SandboxController.Start(); !sandboxStartResult)
         LOG_ERROR("Failed to start sandbox engine: {}", sandboxStartResult.error().Message);
-    else if (GameSession::kMultiPvLines > 1)
-        m_SandboxController.SetOption("MultiPV", std::to_string(GameSession::kMultiPvLines));
+    else
+        GameSession::ConfigureMultiPv(m_SandboxController);
 
     m_SandboxController.SetOnInfo([this](const SearchInfo& info) {
         m_SandboxEnginePanel.UpdateInfo(info, m_SandboxSession.GetRequestedSide());
@@ -126,7 +132,13 @@ int App::Run()
 
         if (!m_LayoutInitialized)
         {
-            SetupDefaultDockLayout(dockspaceId);
+            if (hasSavedLayout)
+                LOG_INFO("Restoring dock layout saved from a previous session");
+            else
+            {
+                LOG_INFO("No saved dock layout found - applying the default one");
+                SetupDefaultDockLayout(dockspaceId);
+            }
             m_LayoutInitialized = true;
         }
 

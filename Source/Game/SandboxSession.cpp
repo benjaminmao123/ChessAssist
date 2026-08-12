@@ -97,14 +97,7 @@ PieceColor SandboxSession::GetRequestedSide() const
 
 std::vector<std::string> SandboxSession::GetAlternateMoves() const
 {
-    std::scoped_lock lock(m_AlternateMovesMutex);
-
-    std::vector<std::string> moves;
-    moves.reserve(m_AlternateMoves.size());
-    for (const auto& [multiPvIndex, move] : m_AlternateMoves)
-        moves.push_back(move);  // std::map iterates by key, so this is already index-ordered
-
-    return moves;
+    return m_AlternateMoves.GetMoves();
 }
 
 std::optional<std::string> SandboxSession::GetLookaheadMove() const
@@ -125,14 +118,7 @@ std::optional<std::string> SandboxSession::GetLookaheadMove() const
     // the string and drawing it straight onto the still-one-ply-behind board - see
     // GameSession::GetLookaheadMove()'s comment for why (a pawn move, especially en passant,
     // can otherwise look outright illegal).
-    MoveGenerator::PositionState position = m_Current;
-    const std::optional<MoveGenerator::LegalMove> intermediate = MoveGenerator::FindLegalMove(position, candidate->OwnMove);
-    if (!intermediate)
-        return std::nullopt;
-
-    MoveGenerator::ApplyMove(position, *intermediate);
-
-    if (!MoveGenerator::FindLegalMove(position, candidate->ReplyMove))
+    if (!MoveGenerator::VerifyTwoPlyContinuation(m_Current, candidate->OwnMove, candidate->ReplyMove))
         return std::nullopt;
 
     return candidate->ReplyMove;
@@ -151,8 +137,7 @@ void SandboxSession::OnEngineInfo(const SearchInfo& info)
 
     if (info.MultiPvIndex >= 2)
     {
-        std::scoped_lock lock(m_AlternateMovesMutex);
-        m_AlternateMoves[info.MultiPvIndex] = info.Pv.front();
+        m_AlternateMoves.OnInfo(info);
         return;
     }
 
@@ -170,10 +155,7 @@ void SandboxSession::RequestSandboxSearch()
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
     }
-    {
-        std::scoped_lock lock(m_AlternateMovesMutex);
-        m_AlternateMoves.clear();
-    }
+    m_AlternateMoves.Clear();
     {
         std::scoped_lock lock(m_LookaheadMutex);
         m_LookaheadCandidate.reset();
@@ -194,8 +176,7 @@ void SandboxSession::RebuildCurrentAndRequery()
         m_Engine->StopSearch();
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
-        std::scoped_lock alternatesLock(m_AlternateMovesMutex);
-        m_AlternateMoves.clear();
+        m_AlternateMoves.Clear();
         std::scoped_lock lookaheadLock(m_LookaheadMutex);
         m_LookaheadCandidate.reset();
     }

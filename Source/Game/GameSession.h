@@ -1,6 +1,8 @@
 #pragma once
 
+#include "AccuracyTracker.h"
 #include "GameTracker.h"
+#include "PremoveTracker.h"
 
 #include "Browser/BrowserLauncher.h"
 #include "Browser/CdpClient.h"
@@ -8,12 +10,12 @@
 #include "Chess/ChessRules.h"
 #include "Chess/PolyglotBook.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/MultiPvCollector.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -190,6 +192,14 @@ public:
     // use for alternate lines.
     static constexpr int kMultiPvLines = 3;
 
+    // Applies kMultiPvLines to controller's "MultiPV" UCI option, if kMultiPvLines > 1 (a no-op
+    // otherwise - multipv effectively off) - shared by ControlsPanel::RestartEngine() (the live
+    // engine) and App::Run() (the sandbox's own dedicated engine, which has no "restart" button
+    // of its own), so the two don't drift out of sync on when this gets (re)applied. A freshly
+    // spawned engine process starts with every UCI option at its default (MultiPV 1), so this
+    // needs reapplying any time either engine (re)starts.
+    static void ConfigureMultiPv(EngineController& controller);
+
     // Derives a movetime + depth preset from elo and applies it to future RequestEngineMove()
     // calls (an already-in-flight search is unaffected) - roughly, a weaker target Elo thinks
     // less deeply and less long, similar to how weaker bots play faster and shallower. This is
@@ -256,6 +266,10 @@ public:
     [[nodiscard]] std::optional<float> GetAccuracyPercent() const;
 
 private:
+    // Which color the tracked player is on, inferred from board orientation - see the member
+    // comment on m_BlackAtBottom. Safe to call from either thread (m_BlackAtBottom is atomic).
+    [[nodiscard]] PieceColor MyColor() const;
+
     // quickVerify caps this search to a short, fixed time (see kPremoveVerifyMoveTimeMs) -
     // used when premoving is armed but the opponent didn't play the predicted move (or no
     // prediction was available), so autoplay still responds fast instead of falling back to
@@ -343,14 +357,11 @@ private:
     mutable std::mutex m_SuggestedMoveMutex;
     std::optional<std::string> m_SuggestedMove;  // guarded by m_SuggestedMoveMutex
 
-    // Written by OnEngineInfo (reader thread, one multipv>=2 line at a time, "last update per
-    // index wins") and RequestEngineMove (UI thread, cleared before every new search - same
-    // reasoning as m_SuggestedMove), read by GetAlternateMoves (UI thread). Keyed by UCI
-    // multipv index (2, 3, ...) rather than a plain vector so an out-of-order or missing line
-    // for one index can't shift/mislabel another's slot; std::map's key ordering is what makes
-    // GetAlternateMoves()'s "ordered by multipv index" guarantee free.
-    mutable std::mutex m_AlternateMovesMutex;
-    std::map<int, std::string> m_AlternateMoves;  // guarded by m_AlternateMovesMutex
+    // See MultiPvCollector's own comment - written by OnEngineInfo (reader thread) and cleared
+    // by RequestEngineMove (UI thread) before every new search, read by GetAlternateMoves (UI
+    // thread). Internally thread-safe, same shared type SandboxSession uses for the identical
+    // purpose.
+    MultiPvCollector m_AlternateMoves;
 
     // True when the in-flight search is a purely cosmetic one for a turn the opening book
     // already decided (see RequestEngineMove) - its own bestmove result must never overwrite
@@ -378,33 +389,12 @@ private:
     bool m_OpeningBookEnabled = false;
     PolyglotBook::SelectionMode m_BookSelectionMode = PolyglotBook::SelectionMode::WeightedRandom;
 
-    // ExpectedOwnMove/PredictedOpponentMove/OurResponse are PV[0]/PV[1]/PV[2] from our own
-    // last search (see OnEngineInfo) - "we expect to play this; if the opponent then plays
-    // this, our best reply is this". Written by OnEngineInfo (reader thread), consumed and
-    // cleared by TryPremove (UI thread, via Poll()) - both when it fires (matched) and when it
-    // determines a stored candidate no longer applies (ExpectedOwnMove didn't match what we
-    // actually just played, e.g. a human overrode the suggestion). Deliberately NOT cleared by
-    // RequestEngineMove(): the informational request made for the opponent's turn immediately
-    // after our own move is exactly the position this candidate is waiting out, so clearing it
-    // there (as an earlier version of this code did) meant premove could never fire at all.
-    struct PremoveCandidate
-    {
-        std::string ExpectedOwnMove;
-        std::string PredictedOpponentMove;
-        std::string OurResponse;
-    };
-    mutable std::mutex m_PremoveMutex;
-    std::optional<PremoveCandidate> m_PremoveCandidate;  // guarded by m_PremoveMutex
+    // See PremoveTracker's own comment - written by OnEngineInfo (reader thread), consumed by
+    // TryPremove (UI thread, via Poll()). Internally thread-safe.
+    PremoveTracker m_Premove;
 
-    // All guarded by m_AccuracyMutex - written by OnEngineInfo/OnEngineBestMove (reader
+    // See AccuracyTracker's own comment - written by OnEngineInfo/OnEngineBestMove (reader
     // thread), read by GetAccuracyPercent (UI thread) and reset by ResetAccuracy (UI thread).
-    // m_PendingBeforeMoveEvalCp/m_LatestAfterMoveEvalCp are both in the tracked player's own
-    // perspective (positive = good for them), continuously overwritten ("last update wins",
-    // same pattern as m_SuggestedMove/m_PremoveCandidate) while their respective side's search
-    // is in flight; OnEngineBestMove pairs them off once the opponent-turn search completes.
-    mutable std::mutex m_AccuracyMutex;
-    std::optional<float> m_PendingBeforeMoveEvalCp;
-    std::optional<float> m_LatestAfterMoveEvalCp;
-    double m_AccuracySumPercent = 0.0;
-    int m_AccuracyMoveCount = 0;
+    // Internally thread-safe.
+    AccuracyTracker m_Accuracy;
 };

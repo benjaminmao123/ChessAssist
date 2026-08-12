@@ -143,6 +143,21 @@ void ApplyMoveOnBoard(BoardState& board, int from, int to, std::optional<PieceTy
     board[to] = moving;
 }
 
+void ApplyCastleOnBoard(BoardState& board, int kingFrom, int kingTo, int rookFrom, int rookTo)
+{
+    const std::optional<Piece> king = board[kingFrom];
+    const std::optional<Piece> rook = board[rookFrom];
+    board[kingFrom] = std::nullopt;
+    board[rookFrom] = std::nullopt;
+    board[kingTo] = king;
+    board[rookTo] = rook;
+}
+
+int EnPassantCaptureSquare(int from, int to)
+{
+    return SquareIndex(to % 8, from / 8);
+}
+
 void ForfeitCastlingRightsForMove(CastlingRights& rights, PieceType movedType, PieceColor movedColor, int from, int to)
 {
     if (movedType == PieceType::King)

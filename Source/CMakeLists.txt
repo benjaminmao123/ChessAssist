@@ -12,6 +12,7 @@ set(ENGINE_SOURCES
     Engine/UCIClient.cpp
     Engine/EngineController.h
     Engine/EngineController.cpp
+    Engine/MultiPvCollector.h
     Process/ChildProcess.h
 )
 
@@ -55,6 +56,10 @@ set(GAME_SOURCES
     Game/GameTracker.cpp
     Game/MoveListDiff.h
     Game/MoveListDiff.cpp
+    Game/AccuracyTracker.h
+    Game/AccuracyTracker.cpp
+    Game/PremoveTracker.h
+    Game/PremoveTracker.cpp
     Game/GameSession.h
     Game/GameSession.cpp
     Game/SandboxSession.h
@@ -63,6 +68,7 @@ set(GAME_SOURCES
 
 set(SETTINGS_SOURCES
     Settings/SettingsIni.h
+    Settings/SettingsIni.cpp
 )
 
 # Library form of the app logic, so both ChessAssist and ChessAssistTests (see ../Tests)

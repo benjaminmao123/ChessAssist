@@ -46,6 +46,15 @@ public:
     // validates that the string is actually legal in position at all.
     [[nodiscard]] static std::optional<LegalMove> FindLegalMove(const PositionState& position, const std::string& uciMove);
 
+    // True if firstUci is legal in position AND secondUci is legal in the position that results
+    // from playing it - used to validate a two-ply PV (e.g. "our suggestion, then the
+    // anticipated reply") before drawing the second ply as an arrow directly onto the
+    // still-one-ply-behind current board, where it could otherwise look outright illegal (a
+    // pawn move, especially en passant, capturing/landing on a square that's only reachable
+    // after the first ply has actually been played). Shared by GameSession::GetLookaheadMove()
+    // and SandboxSession::GetLookaheadMove().
+    [[nodiscard]] static bool VerifyTwoPlyContinuation(const PositionState& position, const std::string& firstUci, const std::string& secondUci);
+
     // Mutates position in place to the result of playing move: moves the piece (castling also
     // moves the rook; en passant also removes the captured pawn), updates CastlingRights and
     // EnPassantTarget, flips SideToMove. Assumes move is already legal - callers must validate

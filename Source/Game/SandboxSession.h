@@ -2,9 +2,9 @@
 
 #include "Chess/MoveGenerator.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/MultiPvCollector.h"
 
 #include <atomic>
-#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -99,11 +99,10 @@ private:
     mutable std::mutex m_SuggestedMoveMutex;
     std::optional<std::string> m_SuggestedMove;  // guarded by m_SuggestedMoveMutex
 
-    // Written by OnEngineInfo (reader thread) and cleared before every new search (UI thread) -
-    // same "keyed by multipv index, last update per index wins" scheme as GameSession's own
-    // m_AlternateMoves, see its comment for why a map rather than a plain vector.
-    mutable std::mutex m_AlternateMovesMutex;
-    std::map<int, std::string> m_AlternateMoves;  // guarded by m_AlternateMovesMutex
+    // See MultiPvCollector's own comment - same shared type GameSession uses for the identical
+    // purpose. Internally thread-safe: written by OnEngineInfo (reader thread), cleared before
+    // every new search (UI thread).
+    MultiPvCollector m_AlternateMoves;
 
     // OwnMove/ReplyMove are PV[0]/PV[1] of the primary (multipv 1) line - "the current
     // suggestion is expected to be met with this reply." Written by OnEngineInfo (reader

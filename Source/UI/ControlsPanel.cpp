@@ -64,8 +64,7 @@ void ControlsPanel::RestartEngine(std::string_view enginePath)
     // the best one, feeding GameSession::GetAlternateMoves() - same "options reset on every
     // fresh process" reasoning as ApplyEloTarget() above. Only the live engine needs this; the
     // sandbox's own dedicated EngineController (see App) is unrelated to this one.
-    if (GameSession::kMultiPvLines > 1)
-        m_Controller->SetOption("MultiPV", std::to_string(GameSession::kMultiPvLines));
+    GameSession::ConfigureMultiPv(*m_Controller);
 }
 
 void ControlsPanel::ApplyEloTarget()
@@ -160,18 +159,7 @@ void ControlsPanel::SaveSettings() const
     // this class only ever touches its own sections, on top of whatever's already there.
     // BoardStatePanel::SaveSettings() does the identical read-merge for the same reason, in the
     // other direction.
-    inih::INIReader ini;
-    if (std::filesystem::exists(path))
-    {
-        try
-        {
-            ini = inih::INIReader(path);
-        }
-        catch (const std::exception& e)
-        {
-            LOG_WARN("SaveSettings: failed to read existing '{}' before merging: {} - other panels' settings may be lost", path, e.what());
-        }
-    }
+    inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "SaveSettings");
 
     SettingsIni::UpsertEntry(ini,"Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
     SettingsIni::UpsertEntry(ini,"Connection", "Site", static_cast<int>(m_SelectedSite));
@@ -188,15 +176,7 @@ void ControlsPanel::SaveSettings() const
     SettingsIni::UpsertEntry(ini,"OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
     SettingsIni::UpsertEntry(ini,"OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
 
-    try
-    {
-        inih::INIWriter::write(path, ini, /*overwrite=*/true);
-        LOG_INFO("SaveSettings: wrote settings to {}", path);
-    }
-    catch (const std::exception& e)
-    {
-        LOG_ERROR("SaveSettings: failed to write '{}': {}", path, e.what());
-    }
+    SettingsIni::SaveMerged(path, ini, "SaveSettings");
 }
 
 void ControlsPanel::Draw()

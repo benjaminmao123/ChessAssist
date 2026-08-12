@@ -3,11 +3,26 @@
 #include <ini/ini.h>
 
 #include <string>
+#include <string_view>
 
-// Small shared helper for settings.ini, which multiple independent panels (ControlsPanel,
+// Small shared helpers for settings.ini, which multiple independent panels (ControlsPanel,
 // BoardStatePanel) each own a disjoint section of and persist separately, all to the same file.
 namespace SettingsIni
 {
+// Reads path as an INIReader if it exists, logging (via logLabel, e.g. "BoardStatePanel::
+// SaveSettings") and falling back to a blank reader on any parse failure or if the file simply
+// doesn't exist yet (a fresh install/deleted file, not an error). The common read half of every
+// settings.ini owner's SaveSettings(): read-merge the existing file first (via this), then
+// UpsertEntry() this owner's own keys onto it, then SaveMerged() - so as not to erase another
+// owner's sections when INIWriter::write() later writes out only what's in the INIReader object
+// it's given.
+[[nodiscard]] inih::INIReader LoadOrEmpty(const std::string& path, std::string_view logLabel);
+
+// Writes ini to path (always overwriting), logging success/failure via logLabel - the common
+// write half paired with LoadOrEmpty(), with this owner's own UpsertEntry() calls in between.
+void SaveMerged(const std::string& path, const inih::INIReader& ini, std::string_view logLabel);
+
+
 // inih::INIReader::InsertEntry() throws if the key already exists in the section, and
 // UpdateEntry() throws if it doesn't - callers that read-merge an existing file before writing
 // (so as not to erase another owner's sections in the same file - see INIWriter::write()'s own
