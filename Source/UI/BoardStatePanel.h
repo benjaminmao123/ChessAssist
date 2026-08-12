@@ -1,27 +1,31 @@
 #pragma once
 
-#include "Chess/ChessTypes.h"
-
 #include <memory>
 #include <optional>
 #include <string>
 
 class EngineInfoPanel;
+class SandboxSession;
 
-// Renders GameSession's tracked position (from ChessRules::GetBoard()) as a real chessboard -
-// checkerboard squares plus piece images - rather than a screenshot; just a sanity-check view
-// so a tracking desync is visible at a glance instead of only in log text. Also consolidates
-// the engine's read on the position alongside the board it's about: a vertical eval bar, an
-// on-board arrow for its suggested move on the tracked player's own turn, and
+// Renders the tracked position as a real chessboard - checkerboard squares plus piece images -
+// rather than a screenshot; a sanity-check view so a tracking desync is visible at a glance
+// instead of only in log text. Also consolidates the engine's read on the position alongside
+// the board it's about: a vertical eval bar, an on-board arrow for the engine's suggestion, and
 // EngineInfoPanel::DrawContents()'s depth/score/PV/best-move text, all in this one window
-// rather than split across separate ones. Stateless per frame otherwise: called directly with
-// the current board each frame from the UI thread, same as the rest of the poll loop - no
-// buffering of its own needed since, unlike EngineInfoPanel, nothing here is fed from an async
-// callback on another thread.
+// rather than split across separate ones.
+//
+// Also owns the sandbox's mouse interaction: dragging pieces to explore a hypothetical
+// continuation locally (see SandboxSession) - never touches the live site. Since SandboxSession
+// always mirrors the live tracked position while no hypothetical move has been played, this
+// class reads board/orientation/check-square straight off it rather than taking them as Draw()
+// parameters - correct whether or not a hypothetical line is active. While a hypothetical line
+// IS active, the eval bar/arrow/PV text switch to the sandbox's own dedicated engine
+// (sandboxEnginePanel) instead of the live one, so exploring never shows stale/live-position
+// analysis under a hypothetical board.
 class BoardStatePanel
 {
 public:
-    explicit BoardStatePanel(EngineInfoPanel& enginePanel);
+    BoardStatePanel(EngineInfoPanel& liveEnginePanel, EngineInfoPanel& sandboxEnginePanel, SandboxSession& sandbox);
     ~BoardStatePanel();
     BoardStatePanel(const BoardStatePanel&) = delete;
     BoardStatePanel& operator=(const BoardStatePanel&) = delete;
@@ -34,22 +38,20 @@ public:
     // it, rather than failing the whole panel.
     void LoadTextures();
 
-    // blackAtBottom draws the board in the same orientation as the live game (see
-    // GameSession::IsBlackAtBottom) instead of always assuming White-at-bottom. suggestedMove,
-    // if present, is the engine's UCI suggestion for the tracked player's own turn right now
-    // (see GameSession::GetSuggestedMove()) - drawn as an arrow from the piece to move to
-    // where it should go, plus a highlight on both squares; the arrow is drawn in a distinct
-    // color, and an on-board banner shown, when the latest search info (see EngineInfoPanel::
-    // GetMateInfo(), read directly from the enginePanel passed to the constructor) reports a
-    // forced mate, so it's visible at a glance which move leads to it. checkedKingSquare (see
-    // GameSession::GetCheckedKingSquare()), if present, is the canonically-indexed square of
-    // whichever king is currently in check, highlighted the same way. accuracyPercent (see
-    // GameSession::GetAccuracyPercent()) is shown as text alongside the engine info below the
-    // board, nullopt drawing a placeholder rather than being omitted.
-    void Draw(const BoardState& board, bool blackAtBottom, const std::optional<std::string>& suggestedMove, std::optional<int> checkedKingSquare, std::optional<float> accuracyPercent);
+    // liveSuggestedMove is the live engine's UCI suggestion for the tracked player's own turn
+    // right now (see GameSession::GetSuggestedMove()) - drawn as the primary on-board arrow
+    // when no hypothetical line is active. lookaheadMove (see GameSession::GetLookaheadMove())
+    // is drawn as a second, visually distinct arrow - the tracked player's planned response to
+    // the engine's predicted opponent move - shown only when it's the opponent's turn and no
+    // hypothetical line is active. accuracyPercent (see GameSession::GetAccuracyPercent()) is
+    // always shown from the live game, regardless of sandbox state - nullopt draws a
+    // placeholder rather than being omitted.
+    void Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, std::optional<float> accuracyPercent);
 
 private:
-    EngineInfoPanel* m_EnginePanel = nullptr;
+    EngineInfoPanel* m_LiveEnginePanel = nullptr;
+    EngineInfoPanel* m_SandboxEnginePanel = nullptr;
+    SandboxSession* m_Sandbox = nullptr;
 
     struct Impl;
     std::unique_ptr<Impl> m_Impl;

@@ -1,5 +1,7 @@
 #include "ChessRules.h"
 
+#include "ChessBoardOps.h"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -16,11 +18,6 @@ struct ParsedSan
     int DestRank = 0;
     std::optional<PieceType> Promotion;
 };
-
-PieceColor Opposite(PieceColor color)
-{
-    return color == PieceColor::White ? PieceColor::Black : PieceColor::White;
-}
 
 std::optional<PieceType> PieceTypeFromLetter(char c)
 {
@@ -125,142 +122,6 @@ std::optional<ParsedSan> ParseSan(std::string_view san)
     return result;
 }
 
-bool SlidingPathClear(const BoardState& board, int from, int to)
-{
-    const int fromFile = from % 8, fromRank = from / 8;
-    const int toFile = to % 8, toRank = to / 8;
-    const int stepFile = (toFile > fromFile) ? 1 : (toFile < fromFile ? -1 : 0);
-    const int stepRank = (toRank > fromRank) ? 1 : (toRank < fromRank ? -1 : 0);
-
-    int file = fromFile + stepFile;
-    int rank = fromRank + stepRank;
-    while (file != toFile || rank != toRank)
-    {
-        if (board[SquareIndex(file, rank)])
-            return false;
-        file += stepFile;
-        rank += stepRank;
-    }
-
-    return true;
-}
-
-// Pawn pushes/captures/en passant are handled separately from this - pawns are the only
-// piece whose reachability depends on direction-of-travel (captures only diagonally, pushes
-// only straight) rather than pure geometry.
-bool CanPieceReach(const BoardState& board, PieceType type, int from, int to)
-{
-    if (from == to)
-        return false;
-
-    const int fromFile = from % 8, fromRank = from / 8;
-    const int toFile = to % 8, toRank = to / 8;
-    const int dFile = toFile - fromFile;
-    const int dRank = toRank - fromRank;
-
-    switch (type)
-    {
-    case PieceType::Knight:
-        return (std::abs(dFile) == 1 && std::abs(dRank) == 2) || (std::abs(dFile) == 2 && std::abs(dRank) == 1);
-
-    case PieceType::King:
-        return std::abs(dFile) <= 1 && std::abs(dRank) <= 1;
-
-    case PieceType::Bishop:
-        return std::abs(dFile) == std::abs(dRank) && SlidingPathClear(board, from, to);
-
-    case PieceType::Rook:
-        return (dFile == 0 || dRank == 0) && SlidingPathClear(board, from, to);
-
-    case PieceType::Queen:
-        return (std::abs(dFile) == std::abs(dRank) || dFile == 0 || dRank == 0) && SlidingPathClear(board, from, to);
-
-    case PieceType::Pawn:
-        return false;
-    }
-
-    return false;
-}
-
-bool PawnCanReach(const BoardState& board, int from, int to, PieceColor color, bool isCapture, std::optional<int> enPassantTarget)
-{
-    const int fromFile = from % 8, fromRank = from / 8;
-    const int toFile = to % 8, toRank = to / 8;
-    const int direction = (color == PieceColor::White) ? 1 : -1;
-    const int startRank = (color == PieceColor::White) ? 1 : 6;
-
-    if (isCapture)
-    {
-        if (toRank - fromRank != direction || std::abs(toFile - fromFile) != 1)
-            return false;
-
-        if (board[to] && board[to]->Color != color)
-            return true;
-
-        return !board[to] && enPassantTarget && *enPassantTarget == to;
-    }
-
-    if (toFile != fromFile || board[to])
-        return false;
-
-    if (toRank - fromRank == direction)
-        return true;
-
-    if (fromRank == startRank && toRank - fromRank == 2 * direction)
-        return !board[SquareIndex(fromFile, fromRank + direction)];
-
-    return false;
-}
-
-bool IsSquareAttacked(const BoardState& board, int square, PieceColor byColor)
-{
-    const int targetFile = square % 8;
-    const int targetRank = square / 8;
-
-    for (int idx = 0; idx < 64; ++idx)
-    {
-        const std::optional<Piece>& piece = board[idx];
-        if (!piece || piece->Color != byColor)
-            continue;
-
-        if (piece->Type == PieceType::Pawn)
-        {
-            const int direction = (byColor == PieceColor::White) ? 1 : -1;
-            const int file = idx % 8, rank = idx / 8;
-            if (rank + direction == targetRank && std::abs(file - targetFile) == 1)
-                return true;
-            continue;
-        }
-
-        if (CanPieceReach(board, piece->Type, idx, square))
-            return true;
-    }
-
-    return false;
-}
-
-std::optional<int> FindKing(const BoardState& board, PieceColor color)
-{
-    for (int idx = 0; idx < 64; ++idx)
-    {
-        if (board[idx] && board[idx]->Type == PieceType::King && board[idx]->Color == color)
-            return idx;
-    }
-
-    return std::nullopt;
-}
-
-void ApplyMoveOnBoard(BoardState& board, int from, int to, std::optional<PieceType> promotion, std::optional<int> enPassantCaptureSquare)
-{
-    Piece moving = *board[from];
-    if (promotion)
-        moving.Type = *promotion;
-
-    board[from] = std::nullopt;
-    if (enPassantCaptureSquare)
-        board[*enPassantCaptureSquare] = std::nullopt;
-    board[to] = moving;
-}
 }  // namespace
 
 void ChessRules::Reset()
@@ -297,12 +158,9 @@ std::optional<std::string> ChessRules::ApplyCastle(bool kingside)
 
     m_EnPassantTarget.reset();
 
-    if (m_SideToMove == PieceColor::White)
-        m_Rights.WhiteKingside = m_Rights.WhiteQueenside = false;
-    else
-        m_Rights.BlackKingside = m_Rights.BlackQueenside = false;
+    ChessBoardOps::ForfeitCastlingRightsForMove(m_Rights, PieceType::King, m_SideToMove, kingFrom, kingTo);
 
-    m_SideToMove = Opposite(m_SideToMove);
+    m_SideToMove = ChessBoardOps::Opposite(m_SideToMove);
 
     return SquareToAlgebraic(kingFrom) + SquareToAlgebraic(kingTo);
 }
@@ -347,14 +205,14 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
 
         if (parsed->Type == PieceType::Pawn)
         {
-            if (!PawnCanReach(m_Board, idx, destIndex, m_SideToMove, parsed->IsCapture, m_EnPassantTarget))
+            if (!ChessBoardOps::PawnCanReach(m_Board, idx, destIndex, m_SideToMove, parsed->IsCapture, m_EnPassantTarget))
                 continue;
         }
         else
         {
             if (m_Board[destIndex] && m_Board[destIndex]->Color == m_SideToMove)
                 continue;
-            if (!CanPieceReach(m_Board, parsed->Type, idx, destIndex))
+            if (!ChessBoardOps::CanPieceReach(m_Board, parsed->Type, idx, destIndex))
                 continue;
         }
 
@@ -377,10 +235,10 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
             const std::optional<int> epCapture = isEnPassant ? std::optional<int>(SquareIndex(parsed->DestFile, candidate / 8)) : std::nullopt;
 
             BoardState scratch = m_Board;
-            ApplyMoveOnBoard(scratch, candidate, destIndex, parsed->Promotion, epCapture);
+            ChessBoardOps::ApplyMoveOnBoard(scratch, candidate, destIndex, parsed->Promotion, epCapture);
 
-            const std::optional<int> kingSquare = FindKing(scratch, m_SideToMove);
-            if (kingSquare && !IsSquareAttacked(scratch, *kingSquare, Opposite(m_SideToMove)))
+            const std::optional<int> kingSquare = ChessBoardOps::FindKing(scratch, m_SideToMove);
+            if (kingSquare && !ChessBoardOps::IsSquareAttacked(scratch, *kingSquare, ChessBoardOps::Opposite(m_SideToMove)))
                 legal.push_back(candidate);
         }
 
@@ -396,7 +254,7 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
     if (parsed->Type == PieceType::Pawn && parsed->IsCapture && !m_Board[destIndex])
         enPassantCaptureSquare = SquareIndex(parsed->DestFile, source / 8);
 
-    ApplyMoveOnBoard(m_Board, source, destIndex, parsed->Promotion, enPassantCaptureSquare);
+    ChessBoardOps::ApplyMoveOnBoard(m_Board, source, destIndex, parsed->Promotion, enPassantCaptureSquare);
 
     // Castling-rights bookkeeping (has-moved only, per the header comment on
     // GetCastlingRights) - a king move forfeits both rights for its side; a rook's home square
@@ -404,27 +262,13 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
     // candidate search above already rejects landing on a same-color piece) forfeits that one
     // right. Checked unconditionally rather than only for King/Rook movers since destIndex can
     // be a rook's home square regardless of which piece type captured it there.
-    if (parsed->Type == PieceType::King)
-    {
-        if (m_SideToMove == PieceColor::White)
-            m_Rights.WhiteKingside = m_Rights.WhiteQueenside = false;
-        else
-            m_Rights.BlackKingside = m_Rights.BlackQueenside = false;
-    }
-    if (source == SquareIndex(0, 0) || destIndex == SquareIndex(0, 0))
-        m_Rights.WhiteQueenside = false;
-    if (source == SquareIndex(7, 0) || destIndex == SquareIndex(7, 0))
-        m_Rights.WhiteKingside = false;
-    if (source == SquareIndex(0, 7) || destIndex == SquareIndex(0, 7))
-        m_Rights.BlackQueenside = false;
-    if (source == SquareIndex(7, 7) || destIndex == SquareIndex(7, 7))
-        m_Rights.BlackKingside = false;
+    ChessBoardOps::ForfeitCastlingRightsForMove(m_Rights, parsed->Type, m_SideToMove, source, destIndex);
 
     m_EnPassantTarget.reset();
     if (parsed->Type == PieceType::Pawn && std::abs(destIndex / 8 - source / 8) == 2)
         m_EnPassantTarget = SquareIndex(parsed->DestFile, (source / 8 + destIndex / 8) / 2);
 
-    m_SideToMove = Opposite(m_SideToMove);
+    m_SideToMove = ChessBoardOps::Opposite(m_SideToMove);
 
     std::string uci = SquareToAlgebraic(source) + SquareToAlgebraic(destIndex);
     if (parsed->Promotion)
@@ -455,8 +299,8 @@ std::optional<int> ChessRules::GetEnPassantTarget() const
 
 std::optional<int> ChessRules::CheckedKingSquare() const
 {
-    const std::optional<int> kingSquare = FindKing(m_Board, m_SideToMove);
-    if (!kingSquare || !IsSquareAttacked(m_Board, *kingSquare, Opposite(m_SideToMove)))
+    const std::optional<int> kingSquare = ChessBoardOps::FindKing(m_Board, m_SideToMove);
+    if (!kingSquare || !ChessBoardOps::IsSquareAttacked(m_Board, *kingSquare, ChessBoardOps::Opposite(m_SideToMove)))
         return std::nullopt;
 
     return kingSquare;

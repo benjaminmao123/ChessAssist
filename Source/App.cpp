@@ -1,5 +1,6 @@
 #include "App.h"
 
+#include "Chess/MoveGenerator.h"
 #include "Engine/ExecutablePathUtil.h"
 #include "Logging/Log.h"
 #include "UI/ImGuiLogSink.h"
@@ -37,7 +38,8 @@ std::string TimestampedLogFilename()
 }  // namespace
 
 App::App()
-    : m_BoardStatePanel(m_EnginePanel)
+    : m_SandboxSession(m_SandboxController)
+    , m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession)
     , m_GameSession(m_Controller)
     , m_ControlsPanel(m_Controller, m_GameSession)
 {
@@ -98,6 +100,20 @@ int App::Run()
     // overridden by the bundled default - see ControlsPanel::GetEnginePath()'s comment.
     m_ControlsPanel.RestartEngine(m_ControlsPanel.GetEnginePath());
 
+    // Second, independent Stockfish process dedicated to the sandbox's "what-if" analysis - no
+    // Elo/Blitz/book/custom-path settings, just the bundled default, so exploring a hypothetical
+    // line never disrupts or competes with m_Controller's own live-game analysis loop above.
+    if (const auto sandboxStartResult = m_SandboxController.Start(); !sandboxStartResult)
+        LOG_ERROR("Failed to start sandbox engine: {}", sandboxStartResult.error().Message);
+
+    m_SandboxController.SetOnInfo([this](const SearchInfo& info) {
+        m_SandboxEnginePanel.UpdateInfo(info, m_SandboxSession.GetRequestedSide());
+    });
+    m_SandboxController.SetOnBestMove([this](const BestMoveResult& result) {
+        m_SandboxEnginePanel.UpdateBestMove(result);
+        m_SandboxSession.OnEngineBestMove(result);
+    });
+
     constexpr std::chrono::milliseconds kPollInterval{500};
     m_LastPollTime = std::chrono::steady_clock::now();
 
@@ -111,8 +127,20 @@ int App::Run()
             m_LayoutInitialized = true;
         }
 
+        // Resyncs the sandbox to the live position whenever it's changed (a real move landed,
+        // or the game reset) - cheap uint64 compare, so done unconditionally every frame rather
+        // than only on the 500ms poll cadence below. See GameSession::GetPositionGeneration().
+        const std::uint64_t positionGeneration = m_GameSession.GetPositionGeneration();
+        if (!m_LastSandboxGeneration || *m_LastSandboxGeneration != positionGeneration)
+        {
+            m_SandboxSession.SyncToLivePosition(
+                MoveGenerator::PositionState{m_GameSession.GetTrackedBoard(), m_GameSession.GetTracker().GetSideToMove(), m_GameSession.GetCastlingRights(), m_GameSession.GetEnPassantTarget()},
+                m_GameSession.IsBlackAtBottom());
+            m_LastSandboxGeneration = positionGeneration;
+        }
+
         m_ControlsPanel.Draw();
-        m_BoardStatePanel.Draw(m_GameSession.GetTrackedBoard(), m_GameSession.IsBlackAtBottom(), m_GameSession.GetSuggestedMove(), m_GameSession.GetCheckedKingSquare(), m_GameSession.GetAccuracyPercent());
+        m_BoardStatePanel.Draw(m_GameSession.GetSuggestedMove(), m_GameSession.GetLookaheadMove(), m_GameSession.GetAccuracyPercent());
         m_LogPanel.Draw();
 
         const auto now = std::chrono::steady_clock::now();
@@ -129,6 +157,8 @@ int App::Run()
 
     m_ControlsPanel.SaveSettings();
 
+    m_SandboxController.StopSearch();
+    m_SandboxController.Shutdown();
     m_Controller.StopSearch();
     m_Controller.Shutdown();
     m_Window.Shutdown();

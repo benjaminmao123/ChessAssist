@@ -247,9 +247,9 @@ void ControlsPanel::Draw()
         m_GameSession->SetBookSelectionMode(m_BookSelectionModeIndex == 0 ? PolyglotBook::SelectionMode::HighestWeight : PolyglotBook::SelectionMode::WeightedRandom);
 
     if (m_GameSession->HasOpeningBookLoaded())
-        ImGuiUtils::TextColorWrapped(ImGui::GetStyleColorVec4(ImGuiCol_Text), "Book loaded");
+        ImGuiUtils::TextColorWrapped(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Book loaded");
     else
-        ImGuiUtils::TextColorWrapped(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "No book loaded");
+        ImGuiUtils::TextColorWrapped(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No book loaded");
 
     ImGui::SeparatorText("Connection");
 

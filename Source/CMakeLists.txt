@@ -24,8 +24,14 @@ endif()
 set(CHESS_SOURCES
     Chess/ChessTypes.h
     Chess/ChessTypes.cpp
+    Chess/ChessBoardOps.h
+    Chess/ChessBoardOps.cpp
     Chess/ChessRules.h
     Chess/ChessRules.cpp
+    Chess/MoveGenerator.h
+    Chess/MoveGenerator.cpp
+    Chess/FenWriter.h
+    Chess/FenWriter.cpp
     Chess/PolyglotBook.h
     Chess/PolyglotBook.cpp
 )
@@ -51,6 +57,8 @@ set(GAME_SOURCES
     Game/MoveListDiff.cpp
     Game/GameSession.h
     Game/GameSession.cpp
+    Game/SandboxSession.h
+    Game/SandboxSession.cpp
 )
 
 # Library form of the app logic, so both ChessAssist and ChessAssistTests (see ../Tests)

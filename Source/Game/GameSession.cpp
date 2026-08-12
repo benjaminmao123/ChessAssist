@@ -157,6 +157,7 @@ bool GameSession::ConnectToSite(ChessSite site)
     m_Connected = true;
     m_Desynced = false;
     m_InitialMoveRequested = false;
+    ++m_PositionGeneration;
     ResetAccuracy();
 
     LOG_INFO("ConnectToSite: connected to {}", ChessSiteAdapter::UrlMatchSubstring(site));
@@ -189,6 +190,21 @@ const BoardState& GameSession::GetTrackedBoard() const
 std::optional<int> GameSession::GetCheckedKingSquare() const
 {
     return m_Rules.CheckedKingSquare();
+}
+
+CastlingRights GameSession::GetCastlingRights() const
+{
+    return m_Rules.GetCastlingRights();
+}
+
+std::optional<int> GameSession::GetEnPassantTarget() const
+{
+    return m_Rules.GetEnPassantTarget();
+}
+
+std::uint64_t GameSession::GetPositionGeneration() const
+{
+    return m_PositionGeneration;
 }
 
 std::vector<std::string> GameSession::Poll()
@@ -313,6 +329,11 @@ std::vector<std::string> GameSession::Poll()
         LOG_INFO("Poll: fresh game has no moves yet - requesting an initial engine move");
         RequestEngineMove(ShouldQuickVerify());
     }
+
+    // A real move landed, or the game reset (even to 0 moves) - see GetPositionGeneration()'s
+    // comment for why NoChange/AmbiguousShrink deliberately don't bump this.
+    if (!newMoves.empty() || diff.Kind == MoveListDiffKind::ResetToFreshGame)
+        ++m_PositionGeneration;
 
     return newMoves;
 }
@@ -504,6 +525,23 @@ std::optional<std::string> GameSession::GetSuggestedMove() const
 {
     std::scoped_lock lock(m_SuggestedMoveMutex);
     return m_SuggestedMove;
+}
+
+std::optional<std::string> GameSession::GetLookaheadMove() const
+{
+    const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    if (m_Tracker.GetSideToMove() == myColor)
+        return std::nullopt;  // our own turn - GetSuggestedMove() already covers this case
+
+    std::scoped_lock lock(m_PremoveMutex);
+    if (!m_PremoveCandidate)
+        return std::nullopt;
+
+    const std::span<const std::string> moves = m_Tracker.GetMoves();
+    if (moves.empty() || moves.back() != m_PremoveCandidate->ExpectedOwnMove)
+        return std::nullopt;  // stale - our actual last move didn't match what the candidate assumed
+
+    return m_PremoveCandidate->OurResponse;
 }
 
 std::optional<float> GameSession::GetAccuracyPercent() const

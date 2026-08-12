@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -47,6 +48,21 @@ public:
 
     [[nodiscard]] const GameTracker& GetTracker() const;
     [[nodiscard]] const BoardState& GetTrackedBoard() const;
+
+    // Forwarders onto m_Rules - SandboxSession needs the full position (not just the board) to
+    // seed its own hypothetical line. UI-thread-only, like GetTrackedBoard().
+    [[nodiscard]] CastlingRights GetCastlingRights() const;
+    [[nodiscard]] std::optional<int> GetEnPassantTarget() const;
+
+    // Bumped by Poll() whenever it applied >=1 real move or reset to a fresh game (even at 0
+    // moves), and by ConnectToSite(). A cheap "has the live position changed" signal - callers
+    // compare this against their own last-seen value each frame to know when to resync
+    // derived/dependent state (e.g. SandboxSession), without needing to reverse-engineer
+    // Poll()'s return value or GameTracker's move-count/FEN themselves - both miss the
+    // zero-move reset case (two ResetToFreshGame ticks landing before either side has moved
+    // yet look identical to "nothing happened" by move-count/FEN alone). UI-thread-only, like
+    // m_Rules/m_Tracker.
+    [[nodiscard]] std::uint64_t GetPositionGeneration() const;
 
     // Square index of the tracked board's checked king, if either side is currently in check,
     // else nullopt - see ChessRules::CheckedKingSquare(). UI-thread-only, same as
@@ -125,6 +141,20 @@ public:
     // there's never a stale/wrong-position suggestion showing). Safe to call from the UI
     // thread. Display code (BoardStatePanel) draws this as an on-board arrow.
     [[nodiscard]] std::optional<std::string> GetSuggestedMove() const;
+
+    // The tracked player's planned response to the engine's predicted opponent move -
+    // m_PremoveCandidate's OurResponse - meant to be shown as a second, lookahead arrow
+    // alongside GetSuggestedMove()'s existing "what we expect the opponent to play" arrow when
+    // it's currently the opponent's turn. Unlike TryPremove(), never consumes/clears
+    // m_PremoveCandidate, and re-derives its own freshness check (ExpectedOwnMove vs. the
+    // tracker's actual last-played move) rather than relying on TryPremove()'s invalidation,
+    // which only runs while both the premove and autoplay toggles are on (see TryPremove()'s
+    // comment) - this getter is meant to be correct for display regardless of those toggles.
+    // Returns nullopt when it's the tracked player's own turn (GetSuggestedMove() already
+    // covers that case), there's no candidate yet, or the candidate is stale (the tracked
+    // player's actual last move wasn't ExpectedOwnMove - e.g. a human overrode the suggestion).
+    // UI-thread-only, like GetTrackedBoard() (reads m_Tracker without a lock).
+    [[nodiscard]] std::optional<std::string> GetLookaheadMove() const;
 
     // Stockfish's own supported UCI_Elo range - shared with ControlsPanel (which owns the Elo
     // slider and also forwards UCI_LimitStrength/UCI_Elo to EngineController directly) so the
@@ -238,6 +268,10 @@ private:
     GameTracker m_Tracker;
     bool m_Connected = false;
     bool m_Desynced = false;
+
+    // See GetPositionGeneration()'s comment. UI-thread-only, like m_Rules/m_Tracker (only
+    // ever bumped from Poll()/ConnectToSite(), both UI-thread-only).
+    std::uint64_t m_PositionGeneration = 0;
 
     // Set once RequestEngineMove() has fired at least once since the last ConnectToSite() -
     // guards Poll()'s NoChange branch so it seeds exactly one engine request for the starting

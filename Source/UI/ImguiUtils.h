@@ -8,7 +8,7 @@ namespace ImGuiUtils
 // overflowing the window and requiring a horizontal scroll bar. Returns true if the text
 // was clicked (ImGui::IsItemClicked()).
 /*
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
         ImGui::TextWrapped("Tracking lost sync - click Connect to resync");
         ImGui::PopStyleColor();
 */
