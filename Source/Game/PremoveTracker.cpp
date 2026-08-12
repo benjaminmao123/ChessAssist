@@ -2,10 +2,10 @@
 
 #include <utility>
 
-void PremoveTracker::Update(std::string expectedOwnMove, std::string predictedOpponentMove, std::string ourResponse)
+void PremoveTracker::Update(std::string expectedOwnMove, std::string predictedOpponentMove, std::string ourResponse, std::uint64_t generation)
 {
     std::scoped_lock lock(m_Mutex);
-    m_Candidate = Candidate{std::move(expectedOwnMove), std::move(predictedOpponentMove), std::move(ourResponse)};
+    m_Candidate = Candidate{std::move(expectedOwnMove), std::move(predictedOpponentMove), std::move(ourResponse), generation};
 }
 
 std::optional<PremoveTracker::Candidate> PremoveTracker::Peek() const

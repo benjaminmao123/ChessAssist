@@ -126,6 +126,8 @@ int App::Run()
     // to the live game entirely rather than a hypothetical continuation of it.
     if (const auto analysisStartResult = m_AnalysisController.Start(); !analysisStartResult)
         LOG_ERROR("Failed to start analysis engine: {}", analysisStartResult.error().Message);
+    else
+        GameSession::ConfigureMultiPv(m_AnalysisController);
 
     // Fires the analysis board's first real search request - m_AnalysisSession was constructed
     // (in App's own constructor) well before the engine process above existed, so it
@@ -135,11 +137,10 @@ int App::Run()
     // the empty history that's already there.
     m_AnalysisSession.Reset();
 
-    // No OnEngineInfo forwarding needed here (unlike the live/sandbox controllers above) -
-    // AnalysisBoardSession has no lookahead/alternate-move/accuracy concept for an info line to
-    // feed; m_AnalysisEnginePanel.UpdateInfo() alone already covers everything
-    // EngineInfoPanel::DrawContents()/GetWhiteWinFraction() need.
-    m_AnalysisController.SetOnInfo([this](const SearchInfo& info) { m_AnalysisEnginePanel.UpdateInfo(info, m_AnalysisSession.GetRequestedSide()); });
+    m_AnalysisController.SetOnInfo([this](const SearchInfo& info) {
+        m_AnalysisEnginePanel.UpdateInfo(info, m_AnalysisSession.GetRequestedSide());
+        m_AnalysisSession.OnEngineInfo(info);
+    });
     m_AnalysisController.SetOnBestMove([this](const BestMoveResult& result) {
         m_AnalysisEnginePanel.UpdateBestMove(result);
         m_AnalysisSession.OnEngineBestMove(result);
@@ -195,6 +196,7 @@ int App::Run()
 
     m_ControlsPanel.SaveSettings();
     m_BoardStatePanel.SaveSettings();
+    m_AnalysisBoardPanel.SaveSettings();
 
     m_SandboxController.StopSearch();
     m_SandboxController.Shutdown();

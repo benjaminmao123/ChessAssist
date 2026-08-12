@@ -168,10 +168,57 @@ PieceColor AnalysisBoardSession::GetRequestedSide() const
     return m_RequestedSide.load();
 }
 
+std::vector<std::string> AnalysisBoardSession::GetAlternateMoves() const
+{
+    return m_AlternateMoves.GetMoves();
+}
+
+std::optional<std::string> AnalysisBoardSession::GetLookaheadMove() const
+{
+    std::optional<LookaheadCandidate> candidate;
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        candidate = m_LookaheadCandidate;
+    }
+    if (!candidate)
+        return std::nullopt;
+
+    const std::optional<std::string> suggested = GetSuggestedMove();
+    if (!suggested || candidate->OwnMove != *suggested)
+        return std::nullopt;  // stale - the candidate no longer describes the current suggestion
+
+    // Validate against a position with the suggestion actually applied, rather than trusting
+    // the string and drawing it straight onto the still-one-ply-behind board - see
+    // SandboxSession::GetLookaheadMove()'s comment for why (a pawn move, especially en passant,
+    // can otherwise look outright illegal).
+    if (!MoveGenerator::VerifyTwoPlyContinuation(m_Current, candidate->OwnMove, candidate->ReplyMove))
+        return std::nullopt;
+
+    return candidate->ReplyMove;
+}
+
 void AnalysisBoardSession::OnEngineBestMove(const BestMoveResult& result)
 {
     std::scoped_lock lock(m_SuggestedMoveMutex);
     m_SuggestedMove = result.BestMove;
+}
+
+void AnalysisBoardSession::OnEngineInfo(const SearchInfo& info)
+{
+    if (info.Pv.empty())
+        return;
+
+    if (info.MultiPvIndex >= 2)
+    {
+        m_AlternateMoves.OnInfo(info);
+        return;
+    }
+
+    if (info.MultiPvIndex == 1 && info.Pv.size() >= 2)
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        m_LookaheadCandidate = LookaheadCandidate{info.Pv[0], info.Pv[1]};
+    }
 }
 
 void AnalysisBoardSession::RequestAnalysis()
@@ -180,6 +227,11 @@ void AnalysisBoardSession::RequestAnalysis()
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
+    }
+    m_AlternateMoves.Clear();
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        m_LookaheadCandidate.reset();
     }
 
     const std::string fen = ToFen(m_Current.Board, m_Current.SideToMove, m_Current.Rights, m_Current.EnPassantTarget);

@@ -502,7 +502,7 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     if (info.Pv.size() < 3)
         return;
 
-    m_Premove.Update(info.Pv[0], info.Pv[1], info.Pv[2]);
+    m_Premove.Update(info.Pv[0], info.Pv[1], info.Pv[2], m_PositionGeneration);
 }
 
 void GameSession::Tick()
@@ -554,6 +554,16 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     const std::optional<PremoveTracker::Candidate> candidate = m_Premove.Peek();
     if (!candidate || candidate->ExpectedOwnMove != *anchor)
         return std::nullopt;  // stale - the candidate no longer describes the current anchor
+
+    // Belt-and-braces against the ExpectedOwnMove string coincidentally matching the anchor
+    // again at a *different* point in the game (e.g. the same square-pair gets suggested twice,
+    // many moves apart) - the string check above can't tell those apart, but the position
+    // generation can't lie: on our own turn the candidate must have been computed for the
+    // position still on the board right now; on the opponent's turn, exactly one real move
+    // (ours) has landed since.
+    const std::uint64_t expectedGeneration = isOurTurn ? m_PositionGeneration : m_PositionGeneration - 1;
+    if (candidate->Generation != expectedGeneration)
+        return std::nullopt;
 
     // On our own turn, the board still shows the position *before* our own move
     // (ExpectedOwnMove) - so the lookahead (PredictedOpponentMove) is only actually legal

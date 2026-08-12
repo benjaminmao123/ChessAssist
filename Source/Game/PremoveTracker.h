@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -26,9 +27,18 @@ public:
         std::string ExpectedOwnMove;
         std::string PredictedOpponentMove;
         std::string OurResponse;
+
+        // GameSession::GetPositionGeneration() at the moment this candidate was computed (i.e.
+        // while ExpectedOwnMove's position was still on the board) - lets GetLookaheadMove()
+        // detect staleness even when ExpectedOwnMove's *string* happens to coincide with the
+        // current anchor again later in the game (e.g. the same queen retreat square gets
+        // suggested at two unrelated points), which a plain string comparison alone can't catch
+        // since this candidate is deliberately never cleared on its own (see this class's own
+        // comment).
+        std::uint64_t Generation = 0;
     };
 
-    void Update(std::string expectedOwnMove, std::string predictedOpponentMove, std::string ourResponse);
+    void Update(std::string expectedOwnMove, std::string predictedOpponentMove, std::string ourResponse, std::uint64_t generation);
 
     // Non-consuming read of whatever candidate is currently stored, for GetLookaheadMove()'s
     // own freshness check against whichever anchor applies - unlike Take()/

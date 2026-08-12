@@ -20,10 +20,22 @@ class AnalysisBoardPanel
 public:
     AnalysisBoardPanel(EngineInfoPanel& enginePanel, AnalysisBoardSession& session, const ChessPieceTextures& textures);
 
+    // Writes this panel's own display toggles (m_ShowLookaheadArrow/m_ShowAlternateMoves) to
+    // settings.ini (see ExecutablePathUtil::GetSettingsFilePath()), overwriting whatever was
+    // there - same pattern as BoardStatePanel::SaveSettings(), just under this panel's own
+    // "AnalysisBoard" section so the two panels' identically-named toggles don't collide. Called
+    // once by App at shutdown.
+    void SaveSettings() const;
+
     // Not thread-safe: call once per frame from the UI thread only.
     void Draw();
 
 private:
+    // Restores m_ShowLookaheadArrow/m_ShowAlternateMoves from settings.ini, if it exists (a
+    // fresh install/deleted file just keeps the in-class defaults). Called once from the
+    // constructor.
+    void LoadSettings();
+
     EngineInfoPanel* m_EnginePanel = nullptr;
     AnalysisBoardSession* m_Session = nullptr;
     const ChessPieceTextures* m_Textures = nullptr;
@@ -35,4 +47,10 @@ private:
     // change - see Draw()).
     std::array<char, 256> m_FenBuffer{};
     bool m_FenLoadFailed = false;
+
+    // Display-only toggles for the lookahead/alternate-move arrows - same meaning as
+    // BoardStatePanel's own (see its comment), just scoped to this independent board/session.
+    // Default on, matching this panel's primary-arrow-only behavior before these existed.
+    bool m_ShowLookaheadArrow = true;
+    bool m_ShowAlternateMoves = true;
 };

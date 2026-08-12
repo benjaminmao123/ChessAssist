@@ -4,6 +4,7 @@
 
 #include "Chess/MoveGenerator.h"
 #include "Engine/EngineTypes.h"
+#include "Engine/MultiPvCollector.h"
 
 #include <atomic>
 #include <cstddef>
@@ -94,9 +95,30 @@ public:
     // White-perspective display.
     [[nodiscard]] PieceColor GetRequestedSide() const;
 
+    // Other candidate first moves for the current position, beyond GetSuggestedMove()'s primary
+    // line - mirrors SandboxSession::GetAlternateMoves(). Requires MultiPV > 1 on this session's
+    // engine (see kMultiPvLines/App's ConfigureMultiPv() call for it). Ordered by ascending
+    // multipv index, like GameSession::GetAlternateMoves().
+    [[nodiscard]] std::vector<std::string> GetAlternateMoves() const;
+
+    // The anticipated reply to GetSuggestedMove() - one ply beyond it, from the same search's
+    // PV[0]/PV[1] - shown as a second, lookahead arrow alongside the primary one. Mirrors
+    // SandboxSession::GetLookaheadMove(): anchored against GetSuggestedMove() and validated
+    // against a position with that suggestion actually applied first (a pawn move, especially en
+    // passant, can otherwise look outright illegal, since the displayed board is still one ply
+    // behind). Returns nullopt if no candidate has arrived yet, it's stale relative to the
+    // current suggestion, or it fails that validation.
+    [[nodiscard]] std::optional<std::string> GetLookaheadMove() const;
+
     // Routed from EngineController::SetOnBestMove for the analysis controller - called on its
     // reader thread, must not touch m_Current/m_History directly.
     void OnEngineBestMove(const BestMoveResult& result);
+
+    // Routed from EngineController::SetOnInfo for the analysis controller - called on its reader
+    // thread, same constraints as OnEngineBestMove. Collects multipv >= 2 lines' first moves for
+    // GetAlternateMoves() and the multipv 1 line's PV[0]/PV[1] for GetLookaheadMove(), the same
+    // way SandboxSession::OnEngineInfo does.
+    void OnEngineInfo(const SearchInfo& info);
 
 private:
     void RequestAnalysis();  // FEN-serializes m_Current, calls m_Engine->FindBestMoveAsync
@@ -115,4 +137,21 @@ private:
 
     mutable std::mutex m_SuggestedMoveMutex;
     std::optional<std::string> m_SuggestedMove;  // guarded by m_SuggestedMoveMutex
+
+    // See MultiPvCollector's own comment - same shared type GameSession/SandboxSession use for
+    // the identical purpose. Internally thread-safe: written by OnEngineInfo (reader thread),
+    // cleared before every new search (UI thread).
+    MultiPvCollector m_AlternateMoves;
+
+    // OwnMove/ReplyMove are PV[0]/PV[1] of the primary (multipv 1) line - "the current
+    // suggestion is expected to be met with this reply." Written by OnEngineInfo (reader thread,
+    // "last update wins" as the search deepens) and cleared before every new search (UI thread) -
+    // same pattern as m_SuggestedMove/m_AlternateMoves, and as SandboxSession's own.
+    struct LookaheadCandidate
+    {
+        std::string OwnMove;
+        std::string ReplyMove;
+    };
+    mutable std::mutex m_LookaheadMutex;
+    std::optional<LookaheadCandidate> m_LookaheadCandidate;  // guarded by m_LookaheadMutex
 };

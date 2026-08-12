@@ -1,23 +1,69 @@
 #include "AnalysisBoardPanel.h"
 
 #include "ChessPieceTextures.h"
+#include "Engine/ExecutablePathUtil.h"
 #include "Game/AnalysisBoardSession.h"
 #include "ImguiUtils.h"
+#include "Logging/Log.h"
+#include "Settings/SettingsIni.h"
 #include "UI/EngineInfoPanel.h"
 
 #include <imgui.h>
+#include <ini/ini.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 
 AnalysisBoardPanel::AnalysisBoardPanel(EngineInfoPanel& enginePanel, AnalysisBoardSession& session, const ChessPieceTextures& textures)
     : m_EnginePanel(&enginePanel), m_Session(&session), m_Textures(&textures)
 {
+    LoadSettings();
+}
+
+void AnalysisBoardPanel::LoadSettings()
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+    if (!std::filesystem::exists(path))
+        return;
+
+    try
+    {
+        const inih::INIReader ini(path);
+
+        // See BoardStatePanel::LoadSettings()'s comment for why the static_cast is needed here.
+        m_ShowLookaheadArrow = ini.Get<bool>("AnalysisBoard", "ShowLookaheadArrow", static_cast<bool>(m_ShowLookaheadArrow));
+        m_ShowAlternateMoves = ini.Get<bool>("AnalysisBoard", "ShowAlternateMoves", static_cast<bool>(m_ShowAlternateMoves));
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("AnalysisBoardPanel::LoadSettings: failed to read '{}': {} - using defaults", path, e.what());
+    }
+}
+
+void AnalysisBoardPanel::SaveSettings() const
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+
+    // Read-merge rather than starting from a blank INIReader - same reasoning as
+    // BoardStatePanel::SaveSettings()'s own comment, just for this panel's own "AnalysisBoard"
+    // section.
+    inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "AnalysisBoardPanel::SaveSettings");
+
+    SettingsIni::UpsertEntry(ini, "AnalysisBoard", "ShowLookaheadArrow", m_ShowLookaheadArrow);
+    SettingsIni::UpsertEntry(ini, "AnalysisBoard", "ShowAlternateMoves", m_ShowAlternateMoves);
+
+    SettingsIni::SaveMerged(path, ini, "AnalysisBoardPanel::SaveSettings");
 }
 
 void AnalysisBoardPanel::Draw()
 {
     ImGui::Begin("Analysis Board");
+
+    ImGuiUtils::CheckboxTextWrapped("##ShowLookaheadArrow", &m_ShowLookaheadArrow, "Show lookahead arrow");
+    ImGui::SameLine();
+    ImGuiUtils::CheckboxTextWrapped("##ShowAlternateMoves", &m_ShowAlternateMoves, "Show alternate moves");
+    ImGui::Separator();
 
     if (ImGui::Button("Reset"))
         m_Session->Reset();
@@ -146,6 +192,35 @@ void AnalysisBoardPanel::Draw()
         const ImVec2 checkMin = ChessBoardSquareMin(*checkedKingSquare % 8, *checkedKingSquare / 8, blackAtBottom, boardOrigin, squareSize);
         const ImVec2 checkMax(checkMin.x + squareSize, checkMin.y + squareSize);
         drawList->AddRectFilled(checkMin, checkMax, kChessBoardCheckHighlightColor);
+    }
+
+    // Alternate candidate moves (see AnalysisBoardSession::GetAlternateMoves()) - "other possible
+    // moves that aren't necessarily the best," each its own color, drawn first/thinnest so the
+    // lookahead and primary arrows both still read as more prominent on top of them. Gated
+    // behind m_ShowAlternateMoves, same as BoardStatePanel's own.
+    if (m_ShowAlternateMoves)
+    {
+        const std::vector<std::string> alternateMoves = m_Session->GetAlternateMoves();
+        const float alternateThickness = std::max(squareSize * 0.07f, 2.0f);
+        for (std::size_t i = 0; i < alternateMoves.size(); ++i)
+        {
+            const std::optional<ChessBoardSuggestedSquares> alternate = ChessBoardComputeSuggestedSquares(alternateMoves[i], blackAtBottom, boardOrigin, squareSize);
+            if (!alternate)
+                continue;
+
+            const ImU32 color = kChessBoardAlternateArrowColors[std::min(i, std::size(kChessBoardAlternateArrowColors) - 1)];
+            ChessBoardDrawArrow(drawList, alternate->FromCenter, alternate->ToCenter, color, alternateThickness);
+        }
+    }
+
+    // Lookahead arrow drawn before the primary one so the primary arrow still reads as most
+    // prominent - the anticipated reply to the primary suggestion (see AnalysisBoardSession::
+    // GetLookaheadMove()). Gated behind m_ShowLookaheadArrow, same as BoardStatePanel's own.
+    if (m_ShowLookaheadArrow)
+    {
+        const std::optional<ChessBoardSuggestedSquares> lookahead = ChessBoardComputeSuggestedSquares(m_Session->GetLookaheadMove(), blackAtBottom, boardOrigin, squareSize);
+        if (lookahead)
+            ChessBoardDrawArrow(drawList, lookahead->FromCenter, lookahead->ToCenter, kChessBoardLookaheadArrowColor, std::max(squareSize * 0.08f, 2.5f));
     }
 
     if (suggested)
