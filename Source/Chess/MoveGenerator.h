@@ -41,6 +41,11 @@ public:
     // no piece there, it's the wrong side to move, or the piece has no legal moves.
     [[nodiscard]] static std::vector<LegalMove> GenerateLegalMovesFrom(const PositionState& position, int from);
 
+    // The legal move in position whose UCI notation is uciMove, if any - resolves a plain UCI
+    // string (e.g. from an engine's PV) into an applyable LegalMove, and, as a side effect,
+    // validates that the string is actually legal in position at all.
+    [[nodiscard]] static std::optional<LegalMove> FindLegalMove(const PositionState& position, const std::string& uciMove);
+
     // Mutates position in place to the result of playing move: moves the piece (castling also
     // moves the rook; en passant also removes the captured pawn), updates CastlingRights and
     // EnPassantTarget, flips SideToMove. Assumes move is already legal - callers must validate

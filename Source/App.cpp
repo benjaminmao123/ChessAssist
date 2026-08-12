@@ -105,9 +105,12 @@ int App::Run()
     // line never disrupts or competes with m_Controller's own live-game analysis loop above.
     if (const auto sandboxStartResult = m_SandboxController.Start(); !sandboxStartResult)
         LOG_ERROR("Failed to start sandbox engine: {}", sandboxStartResult.error().Message);
+    else if (GameSession::kMultiPvLines > 1)
+        m_SandboxController.SetOption("MultiPV", std::to_string(GameSession::kMultiPvLines));
 
     m_SandboxController.SetOnInfo([this](const SearchInfo& info) {
         m_SandboxEnginePanel.UpdateInfo(info, m_SandboxSession.GetRequestedSide());
+        m_SandboxSession.OnEngineInfo(info);
     });
     m_SandboxController.SetOnBestMove([this](const BestMoveResult& result) {
         m_SandboxEnginePanel.UpdateBestMove(result);
@@ -140,7 +143,7 @@ int App::Run()
         }
 
         m_ControlsPanel.Draw();
-        m_BoardStatePanel.Draw(m_GameSession.GetSuggestedMove(), m_GameSession.GetLookaheadMove(), m_GameSession.GetAccuracyPercent());
+        m_BoardStatePanel.Draw(m_GameSession.GetSuggestedMove(), m_GameSession.GetLookaheadMove(), m_GameSession.GetAlternateMoves(), m_GameSession.GetAccuracyPercent());
         m_LogPanel.Draw();
 
         const auto now = std::chrono::steady_clock::now();
@@ -156,6 +159,7 @@ int App::Run()
     }
 
     m_ControlsPanel.SaveSettings();
+    m_BoardStatePanel.SaveSettings();
 
     m_SandboxController.StopSearch();
     m_SandboxController.Shutdown();
@@ -189,7 +193,7 @@ void App::SetupDefaultDockLayout(unsigned int dockspaceId)
     ImGui::DockBuilderSplitNode(rightId, ImGuiDir_Up, 0.75f, &boardId, &logId);
 
     ImGui::DockBuilderDockWindow("Controls", leftId);
-    ImGui::DockBuilderDockWindow("Tracked Board", boardId);
+    ImGui::DockBuilderDockWindow("Analysis Board", boardId);
     ImGui::DockBuilderDockWindow("Log", logId);
 
     ImGui::DockBuilderFinish(id);

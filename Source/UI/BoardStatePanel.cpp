@@ -3,10 +3,13 @@
 #include "Chess/MoveGenerator.h"
 #include "Engine/ExecutablePathUtil.h"
 #include "Game/SandboxSession.h"
+#include "ImguiUtils.h"
 #include "Logging/Log.h"
+#include "Settings/SettingsIni.h"
 #include "UI/EngineInfoPanel.h"
 
 #include <imgui.h>
+#include <ini/ini.h>
 
 #ifdef _WIN32
 // GL/gl.h relies on WINGDIAPI/APIENTRY, which it expects windows.h to have already defined -
@@ -24,6 +27,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <iterator>
 #include <utility>
 #include <vector>
 
@@ -252,9 +256,70 @@ struct BoardStatePanel::Impl
 BoardStatePanel::BoardStatePanel(EngineInfoPanel& liveEnginePanel, EngineInfoPanel& sandboxEnginePanel, SandboxSession& sandbox)
     : m_LiveEnginePanel(&liveEnginePanel), m_SandboxEnginePanel(&sandboxEnginePanel), m_Sandbox(&sandbox), m_Impl(std::make_unique<Impl>())
 {
+    LoadSettings();
 }
 
 BoardStatePanel::~BoardStatePanel() = default;
+
+void BoardStatePanel::LoadSettings()
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+    if (!std::filesystem::exists(path))
+        return;
+
+    try
+    {
+        const inih::INIReader ini(path);
+
+        // Get<T>'s default-value parameter is T&& with T explicitly fixed (not deduced) by the
+        // <T> below, so it binds only to rvalues - static_cast produces one from each lvalue
+        // member (plain `m_ShowLookaheadArrow` etc. wouldn't compile). Same pattern
+        // ControlsPanel::LoadSettings() uses for its own bool settings.
+        m_ShowLookaheadArrow = ini.Get<bool>("Display", "ShowLookaheadArrow", static_cast<bool>(m_ShowLookaheadArrow));
+        m_ShowAlternateMoves = ini.Get<bool>("Display", "ShowAlternateMoves", static_cast<bool>(m_ShowAlternateMoves));
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("BoardStatePanel::LoadSettings: failed to read '{}': {} - using defaults", path, e.what());
+    }
+}
+
+void BoardStatePanel::SaveSettings() const
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+
+    // Read-merge rather than starting from a blank INIReader: INIWriter::write() always writes
+    // out exactly (and only) what's in the INIReader object it's given, so starting blank would
+    // silently erase every section ControlsPanel::SaveSettings() owns and writes to this same
+    // file (Engine/Strength/Autoplay/etc.) - this panel only ever touches its own "Display"
+    // section, on top of whatever's already there. ControlsPanel::SaveSettings() does the
+    // identical read-merge for the same reason, in the other direction.
+    inih::INIReader ini;
+    if (std::filesystem::exists(path))
+    {
+        try
+        {
+            ini = inih::INIReader(path);
+        }
+        catch (const std::exception& e)
+        {
+            LOG_WARN("BoardStatePanel::SaveSettings: failed to read existing '{}' before merging: {} - other panels' settings may be lost", path, e.what());
+        }
+    }
+
+    SettingsIni::UpsertEntry(ini, "Display", "ShowLookaheadArrow", m_ShowLookaheadArrow);
+    SettingsIni::UpsertEntry(ini, "Display", "ShowAlternateMoves", m_ShowAlternateMoves);
+
+    try
+    {
+        inih::INIWriter::write(path, ini, /*overwrite=*/true);
+        LOG_INFO("BoardStatePanel::SaveSettings: wrote settings to {}", path);
+    }
+    catch (const std::exception& e)
+    {
+        LOG_ERROR("BoardStatePanel::SaveSettings: failed to write '{}': {}", path, e.what());
+    }
+}
 
 void BoardStatePanel::LoadTextures()
 {
@@ -277,9 +342,18 @@ void BoardStatePanel::LoadTextures()
     m_Impl->TexturesLoaded = true;
 }
 
-void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, std::optional<float> accuracyPercent)
+void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, const std::vector<std::string>& alternateMoves, std::optional<float> accuracyPercent)
 {
     ImGui::Begin("Analysis Board");
+
+    // Display-only toggles for the two secondary arrow kinds below - live here (rather than in
+    // ControlsPanel) since they're purely about what this window draws, not GameSession/engine
+    // behavior. Persisted via SaveSettings()/LoadSettings(), same "Display" ini section as
+    // before the move.
+    ImGuiUtils::CheckboxTextWrapped("##ShowLookaheadArrow", &m_ShowLookaheadArrow, "Show lookahead arrow");
+    ImGui::SameLine();
+    ImGuiUtils::CheckboxTextWrapped("##ShowAlternateMoves", &m_ShowAlternateMoves, "Show alternate moves");
+    ImGui::Separator();
 
     constexpr float kEvalBarWidth = 28.0f;
     constexpr float kEvalBarGap = 12.0f;
@@ -295,7 +369,21 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
     constexpr ImU32 kMateBannerBg = IM_COL32(0x20, 0x00, 0x00, 210);
     constexpr ImU32 kMateBannerText = IM_COL32(0xFF, 0x70, 0x70, 255);
     constexpr ImU32 kPickedSquareColor = IM_COL32(0xFF, 0xFF, 0x00, 90);
-    constexpr ImU32 kLegalDestinationColor = IM_COL32(0x20, 0x20, 0x20, 70);
+    constexpr ImU32 kLegalDestinationColor = IM_COL32(0x00, 0x00, 0x00, 140);
+
+    // One color per alternate candidate move (see GameSession::GetAlternateMoves()), in order -
+    // deliberately distinct from the primary (orange/red) and lookahead (blue) arrow colors,
+    // and deliberately much more transparent than the primary arrow's alpha 220 - low enough
+    // that the primary (best) move still reads as the obvious, solid one at a glance, with each
+    // further alternate fading a bit more to reinforce "less preferred than the last." More
+    // entries than GameSession::kMultiPvLines - 1 ever needs today, so raising that constant
+    // doesn't immediately run out of colors; alternates beyond the array's length reuse its
+    // last entry rather than indexing out of bounds.
+    constexpr ImU32 kAlternateArrowColors[] = {
+        IM_COL32(0xC9, 0xA8, 0x00, 130),  // 2nd choice - gold
+        IM_COL32(0x9C, 0x27, 0xB0, 100),  // 3rd choice - purple
+        IM_COL32(0x00, 0xAC, 0xC1, 75),   // 4th choice - teal
+    };
 
     const bool sandboxActive = m_Sandbox->IsActive();
     EngineInfoPanel& activeEnginePanel = sandboxActive ? *m_SandboxEnginePanel : *m_LiveEnginePanel;
@@ -407,6 +495,14 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
 
     if (interactionEnabled)
     {
+        // Left-clicking the board clears any drawn planning arrows - chess.com's own
+        // convention (left-click dismisses annotations; only right-click-drag creates/removes
+        // them). Fires regardless of what else this click does (pick up a piece, play a move,
+        // deselect) - matches "clicking to interact with the board" broadly, not just empty
+        // squares.
+        if (squareUnderMouse && windowHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            m_Impl->AnnotationArrows.clear();
+
         if (drag.CurrentMode != Impl::DragState::Mode::Dragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && squareUnderMouse && (drag.CurrentMode != Impl::DragState::Mode::Idle || windowHovered))
         {
             const int square = *squareUnderMouse;
@@ -485,10 +581,17 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
         const ImVec2 pickedMin = SquareMin(drag.PickedSquare % 8, drag.PickedSquare / 8, blackAtBottom, boardOrigin, squareSize);
         drawList->AddRectFilled(pickedMin, ImVec2(pickedMin.x + squareSize, pickedMin.y + squareSize), kPickedSquareColor);
 
+        // Lichess-style destination markers: a small filled dot for a quiet move, a ring
+        // hugging the inside edge of the square for a capture - including en passant, whose
+        // destination square is itself empty, so board[move.To] alone wouldn't catch it.
         for (const MoveGenerator::LegalMove& move : drag.LegalDestinations)
         {
-            const ImVec2 destMin = SquareMin(move.To % 8, move.To / 8, blackAtBottom, boardOrigin, squareSize);
-            drawList->AddRectFilled(destMin, ImVec2(destMin.x + squareSize, destMin.y + squareSize), kLegalDestinationColor);
+            const ImVec2 center = SquareCenter(move.To, blackAtBottom, boardOrigin, squareSize);
+            const bool isCapture = move.IsEnPassant || board[move.To].has_value();
+            if (isCapture)
+                drawList->AddCircle(center, squareSize * 0.46f, kLegalDestinationColor, 0, squareSize * 0.07f);
+            else
+                drawList->AddCircleFilled(center, squareSize * 0.16f, kLegalDestinationColor);
         }
     }
     // --- End sandbox mouse interaction (rendering continues below) ------------------------
@@ -547,12 +650,38 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
         }
     }
 
-    // Lookahead arrow drawn before the primary one so the primary arrow still reads as most
-    // prominent - only meaningful for the live position (the opponent's predicted move/our
-    // planned response), not mid-hypothetical-line.
-    if (!sandboxActive)
+    // Alternate candidate moves (see GameSession::GetAlternateMoves()/SandboxSession::
+    // GetAlternateMoves()) - "other possible moves that aren't necessarily the best," each its
+    // own color, drawn first/thinnest so the lookahead and primary arrows both still read as
+    // more prominent on top of them. Meaningful in both the live and sandbox positions (unlike
+    // the lookahead arrow below) - the sandbox's own dedicated engine gets the same MultiPV
+    // treatment as the live one (see App). Gated behind m_ShowAlternateMoves so it's a toggle,
+    // not something forced on the player.
+    if (m_ShowAlternateMoves)
     {
-        const std::optional<SuggestedSquares> lookahead = ComputeSuggestedSquares(lookaheadMove, blackAtBottom, boardOrigin, squareSize);
+        const std::vector<std::string> activeAlternateMoves = sandboxActive ? m_Sandbox->GetAlternateMoves() : alternateMoves;
+        const float alternateThickness = std::max(squareSize * 0.07f, 2.0f);
+        for (std::size_t i = 0; i < activeAlternateMoves.size(); ++i)
+        {
+            const std::optional<SuggestedSquares> alternate = ComputeSuggestedSquares(activeAlternateMoves[i], blackAtBottom, boardOrigin, squareSize);
+            if (!alternate)
+                continue;
+
+            const ImU32 color = kAlternateArrowColors[std::min(i, std::size(kAlternateArrowColors) - 1)];
+            DrawArrow(drawList, alternate->FromCenter, alternate->ToCenter, color, alternateThickness);
+        }
+    }
+
+    // Lookahead arrow drawn before the primary one so the primary arrow still reads as most
+    // prominent - the anticipated reply to the primary suggestion (see GameSession::
+    // GetLookaheadMove()/SandboxSession::GetLookaheadMove()), meaningful in both the live and
+    // sandbox positions (unlike the sandbox check earlier in this file's history - the sandbox
+    // engine now gets the same lookahead treatment as the live one). Gated behind
+    // m_ShowLookaheadArrow so it's a toggle, not something forced on the player.
+    if (m_ShowLookaheadArrow)
+    {
+        const std::optional<std::string> activeLookaheadMove = sandboxActive ? m_Sandbox->GetLookaheadMove() : lookaheadMove;
+        const std::optional<SuggestedSquares> lookahead = ComputeSuggestedSquares(activeLookaheadMove, blackAtBottom, boardOrigin, squareSize);
         if (lookahead)
             DrawArrow(drawList, lookahead->FromCenter, lookahead->ToCenter, kLookaheadArrowColor, std::max(squareSize * 0.08f, 2.5f));
     }

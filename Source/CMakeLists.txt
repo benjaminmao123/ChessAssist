@@ -61,11 +61,15 @@ set(GAME_SOURCES
     Game/SandboxSession.cpp
 )
 
+set(SETTINGS_SOURCES
+    Settings/SettingsIni.h
+)
+
 # Library form of the app logic, so both ChessAssist and ChessAssistTests (see ../Tests)
 # can link against it without recompiling everything twice.
-add_library(ChessAssistCore STATIC ${ENGINE_SOURCES} ${CHESS_SOURCES} ${BROWSER_SOURCES} ${GAME_SOURCES})
+add_library(ChessAssistCore STATIC ${ENGINE_SOURCES} ${CHESS_SOURCES} ${BROWSER_SOURCES} ${GAME_SOURCES} ${SETTINGS_SOURCES})
 
-target_include_directories(ChessAssistCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(ChessAssistCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${INI_CPP_INCLUDE_DIRS})
 target_link_libraries(ChessAssistCore PUBLIC spdlog::spdlog Threads::Threads ixwebsocket::ixwebsocket nlohmann_json::nlohmann_json nfd::nfd)
 
 set(UI_SOURCES

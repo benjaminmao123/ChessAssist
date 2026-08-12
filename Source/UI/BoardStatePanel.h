@@ -3,6 +3,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 class EngineInfoPanel;
 class SandboxSession;
@@ -38,20 +39,45 @@ public:
     // it, rather than failing the whole panel.
     void LoadTextures();
 
-    // liveSuggestedMove is the live engine's UCI suggestion for the tracked player's own turn
-    // right now (see GameSession::GetSuggestedMove()) - drawn as the primary on-board arrow
-    // when no hypothetical line is active. lookaheadMove (see GameSession::GetLookaheadMove())
-    // is drawn as a second, visually distinct arrow - the tracked player's planned response to
-    // the engine's predicted opponent move - shown only when it's the opponent's turn and no
-    // hypothetical line is active. accuracyPercent (see GameSession::GetAccuracyPercent()) is
-    // always shown from the live game, regardless of sandbox state - nullopt draws a
-    // placeholder rather than being omitted.
-    void Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, std::optional<float> accuracyPercent);
+    // Writes this panel's own display toggles (m_ShowLookaheadArrow/m_ShowAlternateMoves) to
+    // settings.ini (see ExecutablePathUtil::GetSettingsFilePath()), overwriting whatever was
+    // there - same pattern as ControlsPanel::SaveSettings(), just for the subset of settings
+    // this panel itself owns and draws checkboxes for. Called once by App at shutdown.
+    void SaveSettings() const;
+
+    // liveSuggestedMove is the live engine's current-turn UCI suggestion (see GameSession::
+    // GetSuggestedMove()) - drawn as the primary on-board arrow when no hypothetical line is
+    // active. lookaheadMove (see GameSession::GetLookaheadMove()) is drawn as a second,
+    // visually distinct arrow one ply beyond it - shown whenever available and the "Show
+    // lookahead arrow" checkbox (drawn by this panel itself) is checked, in both the live
+    // position and (from SandboxSession::GetLookaheadMove(), the sandbox's own dedicated
+    // engine) a hypothetical one. alternateMoves (see GameSession::GetAlternateMoves()) are the
+    // live engine's other candidate moves beyond the primary suggestion, each drawn as its own
+    // arrow in its own color (see kAlternateArrowColors) - shown whenever the "Show alternate
+    // moves" checkbox is checked, likewise in both the live and (from the sandbox's own engine)
+    // hypothetical positions. accuracyPercent (see GameSession::GetAccuracyPercent()) is always
+    // shown from the live game, regardless of sandbox state - nullopt draws a placeholder
+    // rather than being omitted.
+    void Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, const std::vector<std::string>& alternateMoves, std::optional<float> accuracyPercent);
 
 private:
+    // Restores m_ShowLookaheadArrow/m_ShowAlternateMoves from settings.ini, if it exists (a
+    // fresh install/deleted file just keeps the in-class defaults). Called once from the
+    // constructor - pure file parsing, no GL/window dependency, so (unlike LoadTextures())
+    // there's no reason to defer it.
+    void LoadSettings();
+
     EngineInfoPanel* m_LiveEnginePanel = nullptr;
     EngineInfoPanel* m_SandboxEnginePanel = nullptr;
     SandboxSession* m_Sandbox = nullptr;
+
+    // Display-only toggles for the lookahead/alternate-move arrows - neither affects
+    // GameSession/engine behavior at all, purely what gets drawn. Default on, matching this
+    // app's behavior before these became togglable. Drawn as checkboxes directly in Draw(),
+    // right in the window they affect, rather than in ControlsPanel (which owns settings that
+    // actually change game/engine behavior).
+    bool m_ShowLookaheadArrow = true;
+    bool m_ShowAlternateMoves = true;
 
     struct Impl;
     std::unique_ptr<Impl> m_Impl;

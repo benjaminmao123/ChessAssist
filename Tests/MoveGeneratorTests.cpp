@@ -225,8 +225,94 @@ TEST(MoveGeneratorTest, ApplyMoveSetsEnPassantTargetOnDoublePush)
     EXPECT_EQ(position.SideToMove, PieceColor::Black);
 }
 
+TEST(MoveGeneratorTest, EnPassantNotOfferedWithoutARecentDoublePush)
+{
+    // Black's d-pawn walked to d5 one square at a time over two separate moves (not a double
+    // push) - White's adjacent e5 pawn must not be offered an en passant capture to d6.
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("e4"), "e2e4");
+    ASSERT_EQ(rules.ApplySanMove("d6"), "d7d6");
+    ASSERT_EQ(rules.ApplySanMove("e5"), "e4e5");
+    ASSERT_EQ(rules.ApplySanMove("d5"), "d6d5");  // single push onto d5, not a double push
+
+    const PositionState position = FromRules(rules);
+    EXPECT_FALSE(position.EnPassantTarget.has_value());
+
+    const std::vector<LegalMove> pawnMoves = MoveGenerator::GenerateLegalMovesFrom(position, SquareIndex(4, 4));  // e5
+    EXPECT_FALSE(std::any_of(pawnMoves.begin(), pawnMoves.end(), [](const LegalMove& move) { return move.IsEnPassant; }));
+    EXPECT_FALSE(Contains(pawnMoves, SquareIndex(4, 4), SquareIndex(3, 5)));  // e5 to d6
+}
+
+TEST(MoveGeneratorTest, EnPassantRightExpiresAfterAnIntermediateMove)
+{
+    // Black double-pushes to d5, creating a real en passant opportunity for White's e5 pawn -
+    // but White plays something else first. The opportunity must not still be available
+    // afterward, even though the pawns themselves haven't moved.
+    ChessRules rules;
+    rules.Reset();
+
+    ASSERT_EQ(rules.ApplySanMove("e4"), "e2e4");
+    ASSERT_EQ(rules.ApplySanMove("a6"), "a7a6");
+    ASSERT_EQ(rules.ApplySanMove("e5"), "e4e5");
+    ASSERT_EQ(rules.ApplySanMove("d5"), "d7d5");  // en passant to d6 is available right now
+
+    ASSERT_EQ(rules.ApplySanMove("Nf3"), "g1f3");  // White declines it, plays something else
+    ASSERT_EQ(rules.ApplySanMove("a5"), "a6a5");
+
+    const PositionState position = FromRules(rules);
+    EXPECT_FALSE(position.EnPassantTarget.has_value());
+
+    const std::vector<LegalMove> pawnMoves = MoveGenerator::GenerateLegalMovesFrom(position, SquareIndex(4, 4));  // e5
+    EXPECT_FALSE(std::any_of(pawnMoves.begin(), pawnMoves.end(), [](const LegalMove& move) { return move.IsEnPassant; }));
+}
+
+TEST(MoveGeneratorTest, EnPassantCaptureIllegalWhenItExposesOwnKingToDiscoveredCheck)
+{
+    // Classic tricky en passant edge case: King a5, White pawn e5, Black pawn d5 (just double-
+    // pushed from d7), Black rook h5 - capturing e5xd6 e.p. removes BOTH the e5 pawn (moves
+    // away) and the d5 pawn (captured) from rank 5 in one move, opening the entire a5-h5 rank
+    // between the king and the rook. Purely a rank-file reachability check (CanPieceReach/
+    // IsSquareAttacked) would miss this since neither pawn "pins" the other individually - only
+    // simulating the actual resulting board (see LeavesOwnKingSafe) catches it.
+    PositionState position = EmptyPosition(PieceColor::White);
+    position.Board[SquareIndex(0, 4)] = Piece{PieceType::King, PieceColor::White};   // a5
+    position.Board[SquareIndex(4, 4)] = Piece{PieceType::Pawn, PieceColor::White};   // e5
+    position.Board[SquareIndex(3, 4)] = Piece{PieceType::Pawn, PieceColor::Black};   // d5 (just double-pushed)
+    position.Board[SquareIndex(7, 4)] = Piece{PieceType::Rook, PieceColor::Black};   // h5
+    position.Board[SquareIndex(0, 7)] = Piece{PieceType::King, PieceColor::Black};   // a8 - every position needs a black king
+    position.EnPassantTarget = SquareIndex(3, 5);                                    // d6
+
+    const std::vector<LegalMove> pawnMoves = MoveGenerator::GenerateLegalMovesFrom(position, SquareIndex(4, 4));  // e5
+    EXPECT_FALSE(std::any_of(pawnMoves.begin(), pawnMoves.end(), [](const LegalMove& move) { return move.IsEnPassant; }))
+        << "en passant capture should be illegal - it discovers a rook check along rank 5";
+}
+
 TEST(MoveGeneratorTest, ToUciFormatsPromotion)
 {
     const LegalMove move{SquareIndex(6, 6), SquareIndex(6, 7), PieceType::Knight, false, false};
     EXPECT_EQ(MoveGenerator::ToUci(move), "g7g8n");
+}
+
+TEST(MoveGeneratorTest, FindLegalMoveResolvesUciStringToTheMatchingMove)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    const PositionState position = FromRules(rules);
+    const std::optional<LegalMove> move = MoveGenerator::FindLegalMove(position, "e2e4");
+
+    ASSERT_TRUE(move.has_value());
+    EXPECT_EQ(move->From, SquareIndex(4, 1));
+    EXPECT_EQ(move->To, SquareIndex(4, 3));
+}
+
+TEST(MoveGeneratorTest, FindLegalMoveReturnsNulloptForAnIllegalString)
+{
+    ChessRules rules;
+    rules.Reset();
+
+    const PositionState position = FromRules(rules);
+    EXPECT_FALSE(MoveGenerator::FindLegalMove(position, "e2e5").has_value());  // not a legal starting move
 }

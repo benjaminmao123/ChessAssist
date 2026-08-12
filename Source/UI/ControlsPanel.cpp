@@ -4,8 +4,9 @@
 #include "Engine/EngineController.h"
 #include "Engine/ExecutablePathUtil.h"
 #include "Game/GameSession.h"
-#include "Logging/Log.h"
 #include "ImguiUtils.h"
+#include "Logging/Log.h"
+#include "Settings/SettingsIni.h"
 
 #include <imgui.h>
 #include <ini/ini.h>
@@ -58,6 +59,13 @@ void ControlsPanel::RestartEngine(std::string_view enginePath)
     // unlimited strength) - reapply whatever Elo target is currently configured so a restart
     // doesn't silently drop it.
     ApplyEloTarget();
+
+    // Asks the engine to compute GameSession::kMultiPvLines candidate lines instead of just
+    // the best one, feeding GameSession::GetAlternateMoves() - same "options reset on every
+    // fresh process" reasoning as ApplyEloTarget() above. Only the live engine needs this; the
+    // sandbox's own dedicated EngineController (see App) is unrelated to this one.
+    if (GameSession::kMultiPvLines > 1)
+        m_Controller->SetOption("MultiPV", std::to_string(GameSession::kMultiPvLines));
 }
 
 void ControlsPanel::ApplyEloTarget()
@@ -144,23 +152,42 @@ void ControlsPanel::LoadSettings()
 
 void ControlsPanel::SaveSettings() const
 {
-    inih::INIReader ini;
-    ini.InsertEntry("Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
-    ini.InsertEntry("Connection", "Site", static_cast<int>(m_SelectedSite));
-    ini.InsertEntry("Strength", "LimitElo", m_LimitElo);
-    ini.InsertEntry("Strength", "Elo", m_Elo);
-    ini.InsertEntry("Strength", "BlitzMode", m_BlitzMode);
-    ini.InsertEntry("Autoplay", "Enabled", m_AutoplayEnabled);
-    ini.InsertEntry("Autoplay", "Premove", m_PremoveEnabled);
-    ini.InsertEntry("Autoplay", "RandomizeDelay", m_RandomizeMoveDelay);
-    ini.InsertEntry("Autoplay", "MoveDelayMs", m_MoveDelayMs);
-    ini.InsertEntry("Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
-    ini.InsertEntry("ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
-    ini.InsertEntry("OpeningBook", "Enabled", m_OpeningBookEnabled);
-    ini.InsertEntry("OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
-    ini.InsertEntry("OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
-
     const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+
+    // Read-merge rather than starting from a blank INIReader: INIWriter::write() always writes
+    // out exactly (and only) what's in the INIReader object it's given, so starting blank would
+    // silently erase BoardStatePanel::SaveSettings()'s "Display" section in this same file -
+    // this class only ever touches its own sections, on top of whatever's already there.
+    // BoardStatePanel::SaveSettings() does the identical read-merge for the same reason, in the
+    // other direction.
+    inih::INIReader ini;
+    if (std::filesystem::exists(path))
+    {
+        try
+        {
+            ini = inih::INIReader(path);
+        }
+        catch (const std::exception& e)
+        {
+            LOG_WARN("SaveSettings: failed to read existing '{}' before merging: {} - other panels' settings may be lost", path, e.what());
+        }
+    }
+
+    SettingsIni::UpsertEntry(ini,"Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
+    SettingsIni::UpsertEntry(ini,"Connection", "Site", static_cast<int>(m_SelectedSite));
+    SettingsIni::UpsertEntry(ini,"Strength", "LimitElo", m_LimitElo);
+    SettingsIni::UpsertEntry(ini,"Strength", "Elo", m_Elo);
+    SettingsIni::UpsertEntry(ini,"Strength", "BlitzMode", m_BlitzMode);
+    SettingsIni::UpsertEntry(ini,"Autoplay", "Enabled", m_AutoplayEnabled);
+    SettingsIni::UpsertEntry(ini,"Autoplay", "Premove", m_PremoveEnabled);
+    SettingsIni::UpsertEntry(ini,"Autoplay", "RandomizeDelay", m_RandomizeMoveDelay);
+    SettingsIni::UpsertEntry(ini,"Autoplay", "MoveDelayMs", m_MoveDelayMs);
+    SettingsIni::UpsertEntry(ini,"Autoplay", "MoveDelayMaxMs", m_MoveDelayMaxMs);
+    SettingsIni::UpsertEntry(ini,"ManualPlay", "HotkeyIndex", m_PlayMoveHotkeyIndex);
+    SettingsIni::UpsertEntry(ini,"OpeningBook", "Enabled", m_OpeningBookEnabled);
+    SettingsIni::UpsertEntry(ini,"OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
+    SettingsIni::UpsertEntry(ini,"OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
+
     try
     {
         inih::INIWriter::write(path, ini, /*overwrite=*/true);

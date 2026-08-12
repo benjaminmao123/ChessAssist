@@ -32,6 +32,16 @@ float SideToMoveMateMagnitude(int mate)
 
 void EngineInfoPanel::UpdateInfo(const SearchInfo& info, PieceColor requestedSide)
 {
+    // With MultiPV > 1 (see GameSession::kMultiPvLines), Stockfish emits one info line per
+    // requested line per depth (multipv 1, 2, 3, ...), each overwriting the last if not
+    // filtered - without this, the depth/score/PV text here would flicker to whichever
+    // (possibly much weaker) line happened to arrive most recently instead of always tracking
+    // the engine's actual best line. The alternate lines themselves are read directly off
+    // SearchInfo by whichever caller wants them (see GameSession::GetAlternateMoves()), not
+    // through this display-only class.
+    if (info.MultiPvIndex != 1)
+        return;
+
     std::scoped_lock lock(m_Mutex);
     m_LatestInfo = info;
     m_LatestInfoSide = requestedSide;

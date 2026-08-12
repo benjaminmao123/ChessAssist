@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -142,25 +143,52 @@ public:
     // thread. Display code (BoardStatePanel) draws this as an on-board arrow.
     [[nodiscard]] std::optional<std::string> GetSuggestedMove() const;
 
-    // The tracked player's planned response to the engine's predicted opponent move -
-    // m_PremoveCandidate's OurResponse - meant to be shown as a second, lookahead arrow
-    // alongside GetSuggestedMove()'s existing "what we expect the opponent to play" arrow when
-    // it's currently the opponent's turn. Unlike TryPremove(), never consumes/clears
-    // m_PremoveCandidate, and re-derives its own freshness check (ExpectedOwnMove vs. the
-    // tracker's actual last-played move) rather than relying on TryPremove()'s invalidation,
+    // The other side's anticipated next move, one ply beyond GetSuggestedMove() - meant to be
+    // shown as a second, visually distinct arrow alongside it, from the same
+    // m_PremoveCandidate PV[0..2] triple (see OnEngineInfo) either way:
+    //   - Tracked player's own turn: what we expect the opponent to play back after our
+    //     currently-suggested move (m_PremoveCandidate's PredictedOpponentMove) - anchored
+    //     against GetSuggestedMove() itself, since our move hasn't been played yet.
+    //   - Opponent's turn: the tracked player's planned response if the opponent plays the
+    //     predicted move (m_PremoveCandidate's OurResponse) - anchored against the tracker's
+    //     actual last-played move, since by now our half of the pair already happened.
+    // Unlike TryPremove(), never consumes/clears m_PremoveCandidate, and re-derives its own
+    // freshness check in both branches rather than relying on TryPremove()'s invalidation,
     // which only runs while both the premove and autoplay toggles are on (see TryPremove()'s
     // comment) - this getter is meant to be correct for display regardless of those toggles.
-    // Returns nullopt when it's the tracked player's own turn (GetSuggestedMove() already
-    // covers that case), there's no candidate yet, or the candidate is stale (the tracked
-    // player's actual last move wasn't ExpectedOwnMove - e.g. a human overrode the suggestion).
+    // Returns nullopt if there's no candidate yet, or it's stale relative to whichever anchor
+    // applies (e.g. a deeper search superseded it, or a human overrode the suggestion).
     // UI-thread-only, like GetTrackedBoard() (reads m_Tracker without a lock).
     [[nodiscard]] std::optional<std::string> GetLookaheadMove() const;
+
+    // Other candidate first moves for the current search, beyond GetSuggestedMove()'s primary
+    // line - "other possible moves that aren't necessarily the best," each shown as its own
+    // on-board arrow. Populated from UCI "multipv 2", "multipv 3", ... info lines (see
+    // OnEngineInfo), which only arrive once the live engine is actually asked to compute more
+    // than one line - see kMultiPvLines and ControlsPanel::RestartEngine(), which sets the
+    // "MultiPV" UCI option to kMultiPvLines every time the engine (re)starts. Ordered by
+    // ascending multipv index (2, 3, ...), i.e. by the engine's own preference ranking among
+    // the alternates, not necessarily by current live score if the lines are deepening at
+    // different rates mid-search. Empty if MultiPV is effectively off (kMultiPvLines <= 1),
+    // no alternate lines have arrived yet for the current search, or it's mid-request (cleared
+    // like GetSuggestedMove() at the start of every RequestEngineMove()). Safe to call from the
+    // UI thread.
+    [[nodiscard]] std::vector<std::string> GetAlternateMoves() const;
 
     // Stockfish's own supported UCI_Elo range - shared with ControlsPanel (which owns the Elo
     // slider and also forwards UCI_LimitStrength/UCI_Elo to EngineController directly) so the
     // two don't drift out of sync with each other or with SetEloTarget's own preset curve.
     static constexpr int kMinElo = 1320;
     static constexpr int kMaxElo = 3190;
+
+    // Number of candidate lines the live engine is asked to compute (UCI "MultiPV" option) -
+    // 1 is the primary/best line (GetSuggestedMove()), the rest feed GetAlternateMoves(). Set
+    // by ControlsPanel::RestartEngine() every time the live engine (re)starts, since a freshly
+    // spawned engine process starts with every UCI option at its default (MultiPV 1) - see
+    // RestartEngine()'s comment on ApplyEloTarget() for the identical reasoning. Applies only
+    // to the live engine, not the sandbox's own dedicated one (SandboxSession), which has no
+    // use for alternate lines.
+    static constexpr int kMultiPvLines = 3;
 
     // Derives a movetime + depth preset from elo and applies it to future RequestEngineMove()
     // calls (an already-in-flight search is unaffected) - roughly, a weaker target Elo thinks
@@ -314,6 +342,26 @@ private:
     // superseded, regardless of whether autoplay is even on.
     mutable std::mutex m_SuggestedMoveMutex;
     std::optional<std::string> m_SuggestedMove;  // guarded by m_SuggestedMoveMutex
+
+    // Written by OnEngineInfo (reader thread, one multipv>=2 line at a time, "last update per
+    // index wins") and RequestEngineMove (UI thread, cleared before every new search - same
+    // reasoning as m_SuggestedMove), read by GetAlternateMoves (UI thread). Keyed by UCI
+    // multipv index (2, 3, ...) rather than a plain vector so an out-of-order or missing line
+    // for one index can't shift/mislabel another's slot; std::map's key ordering is what makes
+    // GetAlternateMoves()'s "ordered by multipv index" guarantee free.
+    mutable std::mutex m_AlternateMovesMutex;
+    std::map<int, std::string> m_AlternateMoves;  // guarded by m_AlternateMovesMutex
+
+    // True when the in-flight search is a purely cosmetic one for a turn the opening book
+    // already decided (see RequestEngineMove) - its own bestmove result must never overwrite
+    // m_SuggestedMove or get auto-played, only feed OnEngineInfo's usual side effects (alternate
+    // moves, the premove/lookahead candidate, accuracy's "before" eval). Written by
+    // RequestEngineMove (UI thread) before every search it issues, read by OnEngineBestMove
+    // (reader thread) - safe because EngineController itself already discards a stale/
+    // superseded search's bestmove before this class ever sees it (see its m_RequestGeneration
+    // comment), so by the time OnEngineBestMove fires, this always reflects the request it's
+    // actually the result of.
+    std::atomic<bool> m_CosmeticSearch{false};
 
     // UI-thread-only (like RequestEngineMove() itself), same as m_Tracker/m_Rules - no
     // cross-thread access, so plain members rather than atomics.

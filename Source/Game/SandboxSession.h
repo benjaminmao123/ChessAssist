@@ -4,6 +4,7 @@
 #include "Engine/EngineTypes.h"
 
 #include <atomic>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -53,9 +54,33 @@ public:
     // any thread (see GameSession::GetRequestedSide(), the same pattern for the live engine).
     [[nodiscard]] PieceColor GetRequestedSide() const;
 
+    // Other candidate first moves for the current hypothetical position, beyond
+    // GetSuggestedMove()'s primary line - mirrors GameSession::GetAlternateMoves(). Requires
+    // MultiPV > 1 on the sandbox engine, set once by App right after starting it (no "restart"
+    // button exists for this engine, unlike the live one, so no reapplication-on-restart
+    // concern). Ordered by ascending multipv index, like GameSession::GetAlternateMoves().
+    [[nodiscard]] std::vector<std::string> GetAlternateMoves() const;
+
+    // The anticipated reply to GetSuggestedMove() - one ply beyond it, from the same search's
+    // PV[0]/PV[1] - meant to be shown as a second, lookahead arrow alongside the primary one.
+    // Mirrors GameSession::GetLookaheadMove(), but simpler: the sandbox has no "our turn vs.
+    // opponent's turn" concept (either side's pieces can be dragged), so this is always just
+    // "the reply to the current suggestion," anchored against GetSuggestedMove() and validated
+    // against a position with that suggestion actually applied first (same reasoning as
+    // GameSession::GetLookaheadMove()'s comment - a pawn move, especially en passant, can look
+    // outright illegal otherwise, since the displayed board is still one ply behind). Returns
+    // nullopt if !IsActive(), no candidate has arrived yet, it's stale relative to the current
+    // suggestion, or it fails that validation.
+    [[nodiscard]] std::optional<std::string> GetLookaheadMove() const;
+
     // Routed from EngineController::SetOnBestMove for the sandbox controller - called on its
     // reader thread, must not touch m_Current/m_History/m_LiveSnapshot directly.
     void OnEngineBestMove(const BestMoveResult& result);
+
+    // Routed from EngineController::SetOnInfo for the sandbox controller - called on its reader
+    // thread, same constraints as OnEngineBestMove. Collects multipv >= 2 lines' first moves
+    // for GetAlternateMoves(), the same way GameSession::OnEngineInfo does for the live engine.
+    void OnEngineInfo(const SearchInfo& info);
 
 private:
     void RequestSandboxSearch();      // FEN-serializes m_Current, calls m_Engine->FindBestMoveAsync
@@ -73,4 +98,22 @@ private:
 
     mutable std::mutex m_SuggestedMoveMutex;
     std::optional<std::string> m_SuggestedMove;  // guarded by m_SuggestedMoveMutex
+
+    // Written by OnEngineInfo (reader thread) and cleared before every new search (UI thread) -
+    // same "keyed by multipv index, last update per index wins" scheme as GameSession's own
+    // m_AlternateMoves, see its comment for why a map rather than a plain vector.
+    mutable std::mutex m_AlternateMovesMutex;
+    std::map<int, std::string> m_AlternateMoves;  // guarded by m_AlternateMovesMutex
+
+    // OwnMove/ReplyMove are PV[0]/PV[1] of the primary (multipv 1) line - "the current
+    // suggestion is expected to be met with this reply." Written by OnEngineInfo (reader
+    // thread, "last update wins" as the search deepens) and cleared before every new search (UI
+    // thread) - same pattern as m_SuggestedMove/m_AlternateMoves.
+    struct LookaheadCandidate
+    {
+        std::string OwnMove;
+        std::string ReplyMove;
+    };
+    mutable std::mutex m_LookaheadMutex;
+    std::optional<LookaheadCandidate> m_LookaheadCandidate;  // guarded by m_LookaheadMutex
 };

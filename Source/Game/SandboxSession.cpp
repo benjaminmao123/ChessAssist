@@ -95,10 +95,72 @@ PieceColor SandboxSession::GetRequestedSide() const
     return m_RequestedSide.load();
 }
 
+std::vector<std::string> SandboxSession::GetAlternateMoves() const
+{
+    std::scoped_lock lock(m_AlternateMovesMutex);
+
+    std::vector<std::string> moves;
+    moves.reserve(m_AlternateMoves.size());
+    for (const auto& [multiPvIndex, move] : m_AlternateMoves)
+        moves.push_back(move);  // std::map iterates by key, so this is already index-ordered
+
+    return moves;
+}
+
+std::optional<std::string> SandboxSession::GetLookaheadMove() const
+{
+    std::optional<LookaheadCandidate> candidate;
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        candidate = m_LookaheadCandidate;
+    }
+    if (!candidate)
+        return std::nullopt;
+
+    const std::optional<std::string> suggested = GetSuggestedMove();
+    if (!suggested || candidate->OwnMove != *suggested)
+        return std::nullopt;  // stale - the candidate no longer describes the current suggestion
+
+    // Validate against a position with the suggestion actually applied, rather than trusting
+    // the string and drawing it straight onto the still-one-ply-behind board - see
+    // GameSession::GetLookaheadMove()'s comment for why (a pawn move, especially en passant,
+    // can otherwise look outright illegal).
+    MoveGenerator::PositionState position = m_Current;
+    const std::optional<MoveGenerator::LegalMove> intermediate = MoveGenerator::FindLegalMove(position, candidate->OwnMove);
+    if (!intermediate)
+        return std::nullopt;
+
+    MoveGenerator::ApplyMove(position, *intermediate);
+
+    if (!MoveGenerator::FindLegalMove(position, candidate->ReplyMove))
+        return std::nullopt;
+
+    return candidate->ReplyMove;
+}
+
 void SandboxSession::OnEngineBestMove(const BestMoveResult& result)
 {
     std::scoped_lock lock(m_SuggestedMoveMutex);
     m_SuggestedMove = result.BestMove;
+}
+
+void SandboxSession::OnEngineInfo(const SearchInfo& info)
+{
+    if (info.Pv.empty())
+        return;
+
+    if (info.MultiPvIndex >= 2)
+    {
+        std::scoped_lock lock(m_AlternateMovesMutex);
+        m_AlternateMoves[info.MultiPvIndex] = info.Pv.front();
+        return;
+    }
+
+    if (info.MultiPvIndex == 1 && info.Pv.size() >= 2)
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        m_LookaheadCandidate = LookaheadCandidate{info.Pv[0], info.Pv[1]};
+    }
 }
 
 void SandboxSession::RequestSandboxSearch()
@@ -107,6 +169,14 @@ void SandboxSession::RequestSandboxSearch()
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
+    }
+    {
+        std::scoped_lock lock(m_AlternateMovesMutex);
+        m_AlternateMoves.clear();
+    }
+    {
+        std::scoped_lock lock(m_LookaheadMutex);
+        m_LookaheadCandidate.reset();
     }
 
     const std::string fen = ToFen(m_Current.Board, m_Current.SideToMove, m_Current.Rights, m_Current.EnPassantTarget);
@@ -124,6 +194,10 @@ void SandboxSession::RebuildCurrentAndRequery()
         m_Engine->StopSearch();
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
+        std::scoped_lock alternatesLock(m_AlternateMovesMutex);
+        m_AlternateMoves.clear();
+        std::scoped_lock lookaheadLock(m_LookaheadMutex);
+        m_LookaheadCandidate.reset();
     }
     else
     {

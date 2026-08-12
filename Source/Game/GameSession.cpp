@@ -2,6 +2,7 @@
 
 #include "MoveListDiff.h"
 
+#include "Chess/MoveGenerator.h"
 #include "Engine/EngineController.h"
 #include "Logging/Log.h"
 
@@ -406,6 +407,16 @@ void GameSession::PlayBestMoveNow()
 
 void GameSession::OnEngineBestMove(const BestMoveResult& result)
 {
+    // This search only ran to populate display/accuracy side effects (see m_CosmeticSearch's
+    // comment) - the opening book already decided and published this turn's actual move, so
+    // this result itself must be discarded rather than overwriting m_SuggestedMove or queuing a
+    // second, possibly-different autoplay move.
+    if (m_CosmeticSearch.load())
+    {
+        LOG_DEBUG("OnEngineBestMove: '{}' discarded - cosmetic search for a book-decided move", result.BestMove);
+        return;
+    }
+
     // See the member comments on m_RequestedForSide/m_BlackAtBottom for why this pairing is
     // safe to read from the reader thread without touching m_Tracker directly.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
@@ -462,6 +473,20 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     // Same "is this analysis actually for our turn" gating as OnEngineBestMove.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
     const bool isOurTurn = m_RequestedForSide.load() == myColor;
+
+    // Alternate-line candidate moves (see GetAlternateMoves()) - collected regardless of whose
+    // turn this search is analyzing, same scope as m_SuggestedMove itself. Independent of
+    // everything below, which (accuracy tracking, the premove candidate) must only ever look at
+    // the primary (multipv 1) line - a multipv>=2 line is a deliberately weaker alternative, not
+    // a real read on the position.
+    if (info.MultiPvIndex >= 2 && !info.Pv.empty())
+    {
+        std::scoped_lock lock(m_AlternateMovesMutex);
+        m_AlternateMoves[info.MultiPvIndex] = info.Pv.front();
+    }
+
+    if (info.MultiPvIndex != 1)
+        return;
 
     if (info.ScoreCp || info.ScoreMate)
     {
@@ -530,18 +555,60 @@ std::optional<std::string> GameSession::GetSuggestedMove() const
 std::optional<std::string> GameSession::GetLookaheadMove() const
 {
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
-    if (m_Tracker.GetSideToMove() == myColor)
-        return std::nullopt;  // our own turn - GetSuggestedMove() already covers this case
+    const bool isOurTurn = m_Tracker.GetSideToMove() == myColor;
 
-    std::scoped_lock lock(m_PremoveMutex);
-    if (!m_PremoveCandidate)
+    // Resolved before touching m_PremoveMutex, not nested within its lock - GetSuggestedMove()
+    // takes m_SuggestedMoveMutex itself, and this keeps the two mutexes from ever needing to be
+    // held simultaneously anywhere in this class.
+    const std::optional<std::string> anchor = isOurTurn ? GetSuggestedMove() : (m_Tracker.GetMoves().empty() ? std::nullopt : std::make_optional(m_Tracker.GetMoves().back()));
+    if (!anchor)
         return std::nullopt;
 
-    const std::span<const std::string> moves = m_Tracker.GetMoves();
-    if (moves.empty() || moves.back() != m_PremoveCandidate->ExpectedOwnMove)
-        return std::nullopt;  // stale - our actual last move didn't match what the candidate assumed
+    std::string intermediateMove;
+    std::string lookaheadMove;
+    {
+        std::scoped_lock lock(m_PremoveMutex);
+        if (!m_PremoveCandidate || m_PremoveCandidate->ExpectedOwnMove != *anchor)
+            return std::nullopt;  // stale - the candidate no longer describes the current anchor
 
-    return m_PremoveCandidate->OurResponse;
+        // On our own turn, the board still shows the position *before* our own move
+        // (ExpectedOwnMove) - so the lookahead (PredictedOpponentMove) is only actually legal
+        // one ply beyond what's displayed. On the opponent's turn, our own move already
+        // happened for real (it's reflected in m_Rules already) - only their predicted reply
+        // is still the missing ply before OurResponse becomes legal.
+        intermediateMove = isOurTurn ? m_PremoveCandidate->ExpectedOwnMove : m_PremoveCandidate->PredictedOpponentMove;
+        lookaheadMove = isOurTurn ? m_PremoveCandidate->PredictedOpponentMove : m_PremoveCandidate->OurResponse;
+    }
+
+    // Validate against a position with the intermediate move actually applied, rather than
+    // trusting the string and drawing it straight onto the current board - a pawn move
+    // (especially en passant) can otherwise look outright illegal: e.g. PredictedOpponentMove
+    // capturing en passant a pawn that only arrives via our own not-yet-played ExpectedOwnMove
+    // double push would draw a pawn "capturing" on a square that's genuinely empty on the
+    // board as displayed right now.
+    MoveGenerator::PositionState position{m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget()};
+    const std::optional<MoveGenerator::LegalMove> intermediate = MoveGenerator::FindLegalMove(position, intermediateMove);
+    if (!intermediate)
+        return std::nullopt;  // shouldn't happen (it's the engine's own PV/our actual last move), but never draw an unverified arrow
+
+    MoveGenerator::ApplyMove(position, *intermediate);
+
+    if (!MoveGenerator::FindLegalMove(position, lookaheadMove))
+        return std::nullopt;
+
+    return lookaheadMove;
+}
+
+std::vector<std::string> GameSession::GetAlternateMoves() const
+{
+    std::scoped_lock lock(m_AlternateMovesMutex);
+
+    std::vector<std::string> moves;
+    moves.reserve(m_AlternateMoves.size());
+    for (const auto& [multiPvIndex, move] : m_AlternateMoves)
+        moves.push_back(move);  // std::map iterates by key, so this is already index-ordered
+
+    return moves;
 }
 
 std::optional<float> GameSession::GetAccuracyPercent() const
@@ -709,6 +776,10 @@ void GameSession::RequestEngineMove(bool quickVerify)
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
     }
+    {
+        std::scoped_lock lock(m_AlternateMovesMutex);
+        m_AlternateMoves.clear();
+    }
 
     m_RequestedForSide = m_Tracker.GetSideToMove();
     m_InitialMoveRequested = true;
@@ -716,27 +787,42 @@ void GameSession::RequestEngineMove(bool quickVerify)
     // Opening book: only ever intercepts a request for the tracked player's own turn - a
     // request made to (informationally) evaluate the opponent's position, or to score the
     // tracked player's last move for accuracy tracking, always goes to the engine as before,
-    // so neither of those is affected by the book being on. A book hit skips the engine
-    // entirely for this move and publishes it exactly the way OnEngineBestMove publishes an
-    // engine result for our own turn (see QueueAutoplayMove) - the on-board arrow and manual
-    // "play now" hotkey both keep working, and the artificial wait-time delay still applies.
+    // so neither of those is affected by the book being on. A book hit publishes its move
+    // immediately, the same way OnEngineBestMove publishes an engine result for our own turn
+    // (see QueueAutoplayMove) - the on-board arrow and manual "play now" hotkey both keep
+    // working, and the artificial wait-time delay still applies.
     const PieceColor myColor = m_BlackAtBottom.load() ? PieceColor::Black : PieceColor::White;
+    bool wasBookMove = false;
     if (m_RequestedForSide.load() == myColor && m_OpeningBookEnabled && m_OpeningBook.IsLoaded())
     {
         const std::optional<std::string> bookMove = m_OpeningBook.FindMove(m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget(), m_BookSelectionMode);
         if (bookMove)
         {
-            LOG_INFO("RequestEngineMove: playing book move '{}' for {} after [{}] - skipping engine search", *bookMove, SideName(myColor), JoinStrings(m_Tracker.GetMoves()));
+            LOG_INFO("RequestEngineMove: playing book move '{}' for {} after [{}]", *bookMove, SideName(myColor), JoinStrings(m_Tracker.GetMoves()));
             {
                 std::scoped_lock lock(m_SuggestedMoveMutex);
                 m_SuggestedMove = *bookMove;
             }
             QueueAutoplayMove(*bookMove);
-            return;
+            wasBookMove = true;
         }
     }
 
-    LOG_INFO("RequestEngineMove: requesting a move for {} after [{}]{}", SideName(m_RequestedForSide.load()), JoinStrings(m_Tracker.GetMoves()), quickVerify ? " (premove quick-verify)" : "");
+    // The book move (if any) is already decided and published above - this search doesn't pick
+    // the move, it's purely cosmetic: it's what feeds GetLookaheadMove()/GetAlternateMoves()
+    // (and, as a side effect, accuracy tracking's "before" eval - see OnEngineInfo, which needs
+    // no changes at all for this, since a position's "before" eval doesn't depend on which move
+    // ends up played) with real PV/score data instead of leaving them empty for however long the
+    // position stays in book. OnEngineBestMove checks m_CosmeticSearch and discards this
+    // search's own result rather than letting it overwrite m_SuggestedMove or queue a second,
+    // possibly-different autoplay move - the engine's own top choice here won't always match the
+    // book's (when it doesn't, GetLookaheadMove()'s freshness check against GetSuggestedMove()
+    // already handles that gracefully by just not showing a lookahead arrow, exactly as if the
+    // human had overridden the suggestion).
+    m_CosmeticSearch = wasBookMove;
+
+    LOG_INFO("RequestEngineMove: requesting {}a move for {} after [{}]{}", wasBookMove ? "a cosmetic (book move already decided) " : "", SideName(m_RequestedForSide.load()), JoinStrings(m_Tracker.GetMoves()),
+             quickVerify ? " (premove quick-verify)" : "");
 
     (void)m_Controller->FindBestMoveAsync(m_Tracker.GetBaseFen(), limits, m_Tracker.GetMoves());
 }

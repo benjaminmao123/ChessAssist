@@ -9,6 +9,7 @@ add_executable(ChessAssistTests
     PolyglotBookTests.cpp
     GameSessionTests.cpp
     BrowserPipelineTests.cpp
+    SettingsIniTests.cpp
 )
 
 target_link_libraries(ChessAssistTests PRIVATE ChessAssistCore GTest::gtest_main GTest::gtest)

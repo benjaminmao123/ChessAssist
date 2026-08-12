@@ -248,6 +248,17 @@ std::vector<MoveGenerator::LegalMove> MoveGenerator::GenerateLegalMovesFrom(cons
     return filtered;
 }
 
+std::optional<MoveGenerator::LegalMove> MoveGenerator::FindLegalMove(const PositionState& position, const std::string& uciMove)
+{
+    for (const LegalMove& move : GenerateLegalMoves(position))
+    {
+        if (ToUci(move) == uciMove)
+            return move;
+    }
+
+    return std::nullopt;
+}
+
 void MoveGenerator::ApplyMove(PositionState& position, const LegalMove& move)
 {
     if (move.IsCastle)

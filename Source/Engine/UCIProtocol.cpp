@@ -108,13 +108,16 @@ std::optional<SearchInfo> ParseInfoLine(std::string_view line)
             stream >> timeMs;
             info.TimeMs = timeMs;
         }
+        else if (token == "multipv") {
+            stream >> info.MultiPvIndex;
+        }
         else if (token == "pv") {
             std::string move;
             while (stream >> move)
                 info.Pv.push_back(move);
         }
-        // Other fields (multipv, hashfull, tbhits, currmove, currmovenumber,
-        // string, ...) are intentionally ignored - not needed for best-move extraction.
+        // Other fields (hashfull, tbhits, currmove, currmovenumber, string, ...) are
+        // intentionally ignored - not needed for best-move extraction.
     }
 
     if (!sawSearchField)

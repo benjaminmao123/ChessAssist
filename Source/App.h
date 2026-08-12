@@ -28,7 +28,7 @@ private:
     void InitLogging();
     void PollGameSession();
 
-    // Builds a fixed default dock layout (Controls left, Tracked Board large top-right, Log
+    // Builds a fixed default dock layout (Controls left, Analysis Board large top-right, Log
     // small bottom-right) via ImGui's DockBuilder API, called once on the very first frame -
     // see Run(). Deliberately unconditional (not "only if no saved layout exists"): the
     // in-repo default otherwise leaves whatever ad-hoc arrangement a prior session's

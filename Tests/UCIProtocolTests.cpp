@@ -50,6 +50,25 @@ TEST(UCIProtocolTest, ParseInfoLineExtractsDepthScoreAndPv)
     EXPECT_EQ(info->Pv[1], "e7e5");
 }
 
+TEST(UCIProtocolTest, ParseInfoLineDefaultsMultiPvIndexToOneWhenAbsent)
+{
+    const auto info = UCIProtocol::ParseInfoLine("info depth 10 score cp 34 pv e2e4");
+
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->MultiPvIndex, 1);
+}
+
+TEST(UCIProtocolTest, ParseInfoLineExtractsMultiPvIndex)
+{
+    const auto info = UCIProtocol::ParseInfoLine("info depth 10 seldepth 15 multipv 2 score cp 12 nodes 500 nps 1000 time 5 pv d2d4 d7d5");
+
+    ASSERT_TRUE(info.has_value());
+    EXPECT_EQ(info->MultiPvIndex, 2);
+    EXPECT_EQ(info->ScoreCp, 12);
+    ASSERT_EQ(info->Pv.size(), 2u);
+    EXPECT_EQ(info->Pv[0], "d2d4");
+}
+
 TEST(UCIProtocolTest, ParseInfoLineHandlesMateScore)
 {
     const auto info = UCIProtocol::ParseInfoLine("info depth 5 score mate 3");
