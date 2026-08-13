@@ -56,8 +56,27 @@ jobs:
         with:
           vcpkgGitCommitId: 9d7f79f56ae1a9b4704d6a7fb8237e347a974133
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ccache-${{ matrix.os }}-${{ matrix.preset }}
+          max-size: 500M
+
+      # See ci.yml for why this is needed on top of CMAKE_*_COMPILER_LAUNCHER - Stockfish's
+      # own Makefile calls the compiler by bare name, not through CMake.
+      - name: Route Stockfish's compiler through ccache
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ccache-masquerade"
+          CCACHE_BIN=$(command -v ccache)
+          for name in gcc g++ cc c++; do
+            ln -sf "$CCACHE_BIN" "$RUNNER_TEMP/ccache-masquerade/$name"
+          done
+          echo "$RUNNER_TEMP/ccache-masquerade" >> "$GITHUB_PATH"
+
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
