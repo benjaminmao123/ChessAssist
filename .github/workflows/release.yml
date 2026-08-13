@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            preset: windows-clang-release
+            asset_name: windows-x64
+          - os: ubuntu-latest
+            preset: linux-clang-release
+            asset_name: linux-x64
+          - os: macos-latest
+            preset: macos-clang-release
+            asset_name: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Set up MSVC dev environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install LLVM/Clang 22
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22
+
+      - name: Set up MSYS2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          location: C:\
+          msystem: MINGW64
+          update: false
+          path-type: minimal
+          install: base-devel mingw-w64-x86_64-toolchain
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 9d7f79f56ae1a9b4704d6a7fb8237e347a974133
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      # Gate the release on the same unit tests CI runs; BrowserPipelineTest is skipped here
+      # too - it needs a real Chrome window/display, see ci.yml.
+      - name: Test
+        working-directory: out/build/${{ matrix.preset }}
+        shell: bash
+        run: ctest --output-on-failure -E "^BrowserPipelineTest\."
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = "out/build/${{ matrix.preset }}/Source"
+          $dist = "dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "$out/*.exe" $dist
+          if (Test-Path "$out/*.dll") { Copy-Item "$out/*.dll" $dist }
+          Copy-Item "$out/Assets" $dist -Recurse
+          Compress-Archive -Path "$dist/*" -DestinationPath "ChessAssist-${{ github.ref_name }}-${{ matrix.asset_name }}.zip"
+
+      - name: Package (Linux/macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: |
+          out="out/build/${{ matrix.preset }}/Source"
+          dist="dist"
+          mkdir -p "$dist"
+          cp "$out/ChessAssist" "$dist/"
+          cp "$out/stockfish" "$dist/"
+          cp -r "$out/Assets" "$dist/"
+          cp "$out"/*.so* "$dist/" 2>/dev/null || true
+          cp "$out"/*.dylib "$dist/" 2>/dev/null || true
+          tar -czf "ChessAssist-${{ github.ref_name }}-${{ matrix.asset_name }}.tar.gz" -C "$dist" .
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ChessAssist-*.zip
+            ChessAssist-*.tar.gz
+          fail_on_unmatched_files: false
+          generate_release_notes: true

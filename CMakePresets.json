@@ -58,6 +58,34 @@
             }
         },
         {
+            "name": "macos-clang-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "macos-clang-debug",
+            "inherits": "macos-clang-base",
+            "displayName": "macOS Clang Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "macos-clang-release",
+            "inherits": "macos-clang-base",
+            "displayName": "macOS Clang Release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "windows-msvc",
             "displayName": "Windows MSVC",
             "description": "Using compilers for Visual Studio 17 2022 (x86_x64 architecture)",
@@ -99,6 +127,14 @@
         {
             "name": "linux-clang-release",
             "configurePreset": "linux-clang-release"
+        },
+        {
+            "name": "macos-clang-debug",
+            "configurePreset": "macos-clang-debug"
+        },
+        {
+            "name": "macos-clang-release",
+            "configurePreset": "macos-clang-release"
         }
     ]
 }

@@ -2,10 +2,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
 #else
 #include <unistd.h>
 #endif
 
+#include <cstdint>
 #include <vector>
 #include <nfd.h>
 
@@ -31,6 +34,22 @@ std::filesystem::path GetCurrentExecutablePath()
 }
 
 constexpr const wchar_t* kStockfishExeName = L"stockfish.exe";
+#elif defined(__APPLE__)
+std::filesystem::path GetCurrentExecutablePath()
+{
+    // macOS has no /proc, so the executable's own path has to come from dyld directly - the
+    // first call (null buffer) reports the required size, then the second call fills it.
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return {};
+
+    return std::filesystem::canonical(std::filesystem::path(buffer.data()));
+}
+
+constexpr const char* kStockfishExeName = "stockfish";
 #else
 std::filesystem::path GetCurrentExecutablePath()
 {

@@ -1,6 +1,6 @@
 # ChessAssist
 
-A Windows/Linux desktop app that watches a live chess.com or Lichess game in an app-managed
+A Windows/Linux/macOS desktop app that watches a live chess.com or Lichess game in an app-managed
 Chrome window, feeds the position to a local Stockfish, and shows its analysis - depth, score,
 principal variation, an on-board best-move arrow, an eval bar, and a chess.com-style accuracy
 metric - alongside a live visual board.
@@ -71,13 +71,15 @@ Assets/                 Fonts and chessboard/piece images, copied next to the bu
 
 - CMake 4.0+ and Ninja (or Visual Studio 2022 for the MSVC preset).
 - A C++23 compiler: LLVM/Clang (paths in `CMakePresets.json` point at
-  `C:/Program Files/LLVM` on Windows and `/usr/bin/clang-22`/`clang++-22` on Linux) or MSVC via
-  Visual Studio 2022.
+  `C:/Program Files/LLVM` on Windows, `/usr/bin/clang-22`/`clang++-22` on Linux, and
+  `/usr/bin/clang`/`clang++` - i.e. the Xcode Command Line Tools - on macOS) or MSVC via
+  Visual Studio 2022 on Windows.
 - [vcpkg](https://github.com/microsoft/vcpkg), with `VCPKG_ROOT` set - dependencies are
   resolved via manifest mode (`vcpkg.json`), so no manual install step is needed beyond that.
 - **MSYS2 with a MinGW-w64 toolchain** on Windows (expected at `C:/msys64`) - Stockfish itself
-  is built from its own Makefile via `Vendor/CMakeLists.txt`, not vcpkg. On Linux, a plain
-  `make`/GCC toolchain is used instead.
+  is built from its own Makefile via `Vendor/CMakeLists.txt`, not vcpkg. On Linux and macOS, a
+  plain `make`/system compiler toolchain is used instead (Xcode Command Line Tools provide both
+  on macOS).
 - Google Chrome installed (the app launches and drives its own dedicated Chrome instance; a
   handful of tests do the same against local fixtures).
 
@@ -90,8 +92,9 @@ cmake --preset windows-clang-debug
 cmake --build --preset windows-clang-debug
 ```
 
-(swap in `windows-clang-release`, `windows-msvc-debug`/`-release`, or `linux-clang-debug`/
-`-release` as needed). This builds Stockfish from `Vendor/stockfish` as part of the build, and
+(swap in `windows-clang-release`, `windows-msvc-debug`/`-release`, `linux-clang-debug`/
+`-release`, or `macos-clang-debug`/`-release` as needed). This builds Stockfish from
+`Vendor/stockfish` as part of the build, and
 copies both the resulting engine binary and `Assets/` next to the built executable.
 
 ### Running

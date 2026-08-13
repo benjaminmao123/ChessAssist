@@ -5,7 +5,11 @@ project(stockfish_wrapper NONE)
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/stockfish/src" SF_VENDOR_DIR)
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_BINARY_DIR}" SF_OUTPUT_DIR)
 
-set(SF_ARCH "x86-64-avx2")
+if (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(SF_ARCH "apple-silicon")
+else()
+    set(SF_ARCH "x86-64-avx2")
+endif()
 
 if (WIN32)
     set(MSYS_BASH "C:/msys64/usr/bin/bash.exe")
@@ -35,7 +39,7 @@ if (WIN32)
         DEPENDS "${INTERNAL_EXE}"
         COMMENT "Copying Stockfish executable to output directory at ${FINAL_EXE}..."
     )
-elseif (LINUX)
+elseif (LINUX OR APPLE)
     set(INTERNAL_EXE "${SF_VENDOR_DIR}/stockfish")
     set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/stockfish")
     

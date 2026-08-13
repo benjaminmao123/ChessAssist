@@ -20,6 +20,8 @@ std::filesystem::path FindChromeExecutable()
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
         "/snap/bin/chromium",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
     };
 
     for (const char* candidate : kCandidates)
