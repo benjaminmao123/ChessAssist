@@ -8,10 +8,9 @@
 #include <mutex>
 #include <string_view>
 
-// Forwards formatted log messages into a LogPanel for in-app display, in addition to
-// whatever other sinks (e.g. console) are already attached to the logger. Mutex is the
-// same base_sink locking parameter every other spdlog sink takes - use ImGuiLogSinkMt
-// below rather than instantiating this directly.
+// Forwards formatted log messages to a LogPanel for in-app display, alongside whatever other
+// sinks (e.g. console) are attached. Use ImGuiLogSinkMt below rather than instantiating this
+// template directly.
 template <typename Mutex>
 class ImGuiLogSink : public spdlog::sinks::base_sink<Mutex>
 {

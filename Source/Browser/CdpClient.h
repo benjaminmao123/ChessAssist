@@ -14,10 +14,8 @@ struct CdpError
 };
 
 // Speaks the Chrome DevTools Protocol's JSON-RPC directly over a plain WebSocket (CDP on
-// localhost is ws://, not wss://) - no CDP-specific client library exists for C++, and none
-// is needed for the narrow slice used here: evaluate a JS expression in the page and get its
-// result back. No event subscriptions - callers just re-run EvaluateJs on their own polling
-// cadence, so unsolicited CDP events (without a matching request id) are simply ignored.
+// localhost is ws://, not wss://). No event subscriptions - callers just re-run EvaluateJs on
+// their own polling cadence, so unsolicited CDP events are ignored.
 class CdpClient
 {
 public:
@@ -40,11 +38,9 @@ public:
     [[nodiscard]] std::expected<std::string, CdpError> EvaluateJs(std::string_view js, std::chrono::milliseconds timeout = std::chrono::milliseconds(2000));
 
     // Simulates a left-button drag from (fromX, fromY) to (toX, toY) - viewport-relative CSS
-    // pixel coordinates, e.g. from ChessSiteAdapter's board-square lookup - via CDP's Input
-    // domain (mousePressed, a few interpolated mouseMoved steps, mouseReleased). Goes through
-    // Chromium's real input pipeline rather than a page-script-dispatched DOM event, so the
-    // resulting events are trusted (isTrusted: true) - some chess sites' anti-automation
-    // checks reject the untrusted events a plain dispatchEvent() call would produce.
+    // pixel coordinates - via CDP's Input domain (mousePressed, interpolated mouseMoved steps,
+    // mouseReleased). Goes through Chromium's real input pipeline so events are trusted
+    // (isTrusted: true) - some chess sites' anti-automation checks reject dispatchEvent() events.
     [[nodiscard]] std::expected<void, CdpError> DragMouse(double fromX, double fromY, double toX, double toY, std::chrono::milliseconds timeout = std::chrono::milliseconds(2000));
 
     // Single trusted left-click at (x, y) - used for promotion-piece picker clicks.
@@ -52,11 +48,9 @@ public:
 
 private:
     // Sends one CDP command and blocks for its matching response - shared plumbing behind
-    // EvaluateJs, DragMouse, and Click. jsonParams is the command's "params" object,
-    // pre-serialized to JSON text by the caller (kept as text, not a parsed object, at this
-    // boundary too - same reasoning as EvaluateJs's std::string return: keeps the JSON
-    // library out of this header). Returns the response's "result" object as JSON text
-    // ("{}" if absent).
+    // EvaluateJs, DragMouse, and Click. jsonParams is pre-serialized JSON text (kept as text,
+    // not a parsed object, to keep the JSON library out of this header). Returns the
+    // response's "result" object as JSON text ("{}" if absent).
     [[nodiscard]] std::expected<std::string, CdpError> SendCommand(std::string_view method, std::string_view jsonParams, std::chrono::milliseconds timeout);
 
     struct Impl;

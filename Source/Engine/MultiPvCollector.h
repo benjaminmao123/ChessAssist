@@ -8,18 +8,13 @@
 #include <vector>
 
 // Collects "other candidate first moves" (UCI multipv >= 2 info lines) for display as secondary
-// on-board arrows alongside a search's primary suggestion - identical logic previously
-// duplicated between GameSession and SandboxSession, which both feed it the same way from their
-// own OnEngineInfo. Keyed internally by multipv index (2, 3, ...) rather than a plain vector so
-// an out-of-order or missing line for one index can't shift/mislabel another's slot -
-// GetMoves()'s "ordered by multipv index" guarantee is then free from std::map's own key
-// ordering. Internally thread-safe: OnInfo is meant to be called from the engine's background
-// reader thread, GetMoves()/Clear() from the UI thread.
+// on-board arrows alongside a search's primary suggestion. Keyed by multipv index rather than a
+// plain vector so an out-of-order or missing line can't shift/mislabel another slot. Thread-safe:
+// OnInfo runs on the engine's reader thread, GetMoves()/Clear() on the UI thread.
 class MultiPvCollector
 {
 public:
-    // Records info's first PV move under its multipv index - a no-op if info.MultiPvIndex < 2
-    // (the primary line isn't this collector's concern) or its PV is empty.
+    // No-op if info.MultiPvIndex < 2 (the primary line) or its PV is empty.
     void OnInfo(const SearchInfo& info)
     {
         if (info.MultiPvIndex < 2 || info.Pv.empty())
@@ -29,8 +24,8 @@ public:
         m_Moves[info.MultiPvIndex] = info.Pv.front();
     }
 
-    // Called before every new search so a stale alternate from the previous position doesn't
-    // linger until the new search's own multipv lines start arriving.
+    // Call before every new search so a stale alternate from the previous position doesn't
+    // linger until the new search's own multipv lines arrive.
     void Clear()
     {
         std::scoped_lock lock(m_Mutex);

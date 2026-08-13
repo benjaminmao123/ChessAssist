@@ -7,9 +7,8 @@ MoveListDiff ComputeMoveListDiff(std::size_t currentMoveCount, std::size_t alrea
 
     if (currentMoveCount < alreadyAppliedCount)
     {
-        // Unambiguously "a fresh game just started" only when the list dropped to 0 or 1 -
-        // anything else could be a real reset or a flaky/mid-render DOM read, so it's left
-        // for the caller to treat as a desync rather than guessed at here.
+        // Only a drop to 0 or 1 is unambiguously "a fresh game started" - anything else could
+        // be a real desync or a flaky/mid-render DOM read, so it's left for the caller to decide.
         if (currentMoveCount <= 1)
             return {MoveListDiffKind::ResetToFreshGame};
 

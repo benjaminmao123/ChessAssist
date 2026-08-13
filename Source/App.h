@@ -31,25 +31,18 @@ private:
     void InitLogging();
     void PollGameSession();
 
-    // Builds a fixed default dock layout (Controls left, Analysis Board large top-right, Log
-    // small bottom-right) via ImGui's DockBuilder API - called once, on the very first frame,
-    // but only when Run() finds no saved imgui.ini from a previous session (see its
-    // hasSavedLayout check). A fresh install otherwise starts from ImGui's undocked fallback
-    // (every window floating wherever it last defaulted to) instead of this sensible
-    // arrangement. Once a saved imgui.ini exists - whether from a previous run or this one,
-    // the moment the user rearranges anything - ImGui's own automatic load/autosave (see
-    // AppWindow::Init()'s io.IniFilename) takes over for good: this is never called again for
-    // that install, so the user's own layout is restored on every later launch instead of
-    // being reset back to this default.
+    // Builds the fixed default dock layout (Controls left, board large top-right, Log small
+    // bottom-right) via ImGui's DockBuilder API. Called once, on the first frame, only when
+    // Run() finds no saved imgui.ini (see its hasSavedLayout check) - once one exists, ImGui's
+    // own load/autosave takes over for good and this is never called again for that install.
     void SetupDefaultDockLayout(unsigned int dockspaceId);
 
-    // Declaration order matters here: members are constructed in this order (and destroyed in
-    // reverse), and several constructors take references to earlier members that must already
-    // be alive: m_SandboxSession needs m_SandboxController; m_BoardStatePanel needs
-    // m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, and m_PieceTextures;
-    // m_AnalysisSession needs m_AnalysisController; m_AnalysisBoardPanel needs
-    // m_AnalysisEnginePanel, m_AnalysisSession, and m_PieceTextures; m_GameSession needs
-    // m_Controller; m_ControlsPanel needs m_Controller and m_GameSession.
+    // Construction order matters: members are built in this order (destroyed in reverse), and
+    // several constructors take references to earlier members - m_SandboxSession needs
+    // m_SandboxController; m_BoardStatePanel needs m_EnginePanel, m_SandboxEnginePanel,
+    // m_SandboxSession, m_PieceTextures; m_AnalysisSession needs m_AnalysisController;
+    // m_AnalysisBoardPanel needs m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures;
+    // m_GameSession needs m_Controller; m_ControlsPanel needs m_Controller and m_GameSession.
     LogPanel m_LogPanel;
     AppWindow m_Window;
 
@@ -76,8 +69,7 @@ private:
     bool m_LayoutInitialized = false;
 
     // Compared each frame against GameSession::GetPositionGeneration() to know when to resync
-    // m_SandboxSession to the live position - nullopt only before the very first frame, so that
-    // frame always syncs (matching pre-connect behavior: BoardStatePanel shows GameSession's
-    // never-Reset() empty board until ConnectToSite() runs).
+    // m_SandboxSession to the live position - nullopt only before the first frame, so that
+    // frame always syncs.
     std::optional<std::uint64_t> m_LastSandboxGeneration;
 };

@@ -4,55 +4,45 @@
 
 #include <optional>
 
-// Shared board-geometry primitives - pure functions operating on an explicit BoardState, no
-// class state of their own. Extracted out of ChessRules.cpp (which uses these internally to
-// interpret SAN tokens) so MoveGenerator can reuse the exact same attack-detection logic for
-// full legal-move enumeration instead of maintaining a second, drift-prone copy.
+// Shared board-geometry primitives (pure functions over an explicit BoardState) so ChessRules
+// and MoveGenerator can reuse the same attack-detection logic instead of duplicating it.
 namespace ChessBoardOps
 {
 PieceColor Opposite(PieceColor color);
 
-// True if every square strictly between from and to (a straight or diagonal line - callers
-// are responsible for only calling this on such a line) is empty.
+// True if every square strictly between from and to is empty. Caller must ensure from/to lie
+// on a straight or diagonal line.
 [[nodiscard]] bool SlidingPathClear(const BoardState& board, int from, int to);
 
-// Pure geometric reachability for every piece type except Pawn (whose reachability depends on
-// direction of travel - see PawnCanReach) - doesn't check whose turn it is or whether `to` is
-// occupied by a friendly piece.
+// Pure geometric reachability for every piece type except Pawn (see PawnCanReach) - doesn't
+// check whose turn it is or whether `to` is occupied by a friendly piece.
 [[nodiscard]] bool CanPieceReach(const BoardState& board, PieceType type, int from, int to);
 
 [[nodiscard]] bool PawnCanReach(const BoardState& board, int from, int to, PieceColor color, bool isCapture, std::optional<int> enPassantTarget);
 
-// True if any piece of byColor can move to square right now (pure attack geometry - doesn't
-// account for that piece being pinned, since a pinned piece still attacks the squares it
-// threatens, it just can't legally move there itself).
+// True if any piece of byColor attacks square (pure geometry - ignores pins, since a pinned
+// piece still attacks the squares it threatens even though it can't legally move there).
 [[nodiscard]] bool IsSquareAttacked(const BoardState& board, int square, PieceColor byColor);
 
 [[nodiscard]] std::optional<int> FindKing(const BoardState& board, PieceColor color);
 
-// Mutates board in place: moves the piece from `from` to `to` (promoting it if `promotion` is
-// set), and removes the captured pawn at enPassantCaptureSquare if given. Doesn't validate
-// legality - callers must only call this with an already-legal (or scratch/simulated) move.
+// Mutates board in place: moves the piece from `from` to `to` (promoting if `promotion` is
+// set), removing the captured pawn at enPassantCaptureSquare if given. Doesn't validate
+// legality.
 void ApplyMoveOnBoard(BoardState& board, int from, int to, std::optional<PieceType> promotion, std::optional<int> enPassantCaptureSquare);
 
-// Mutates board in place for a castling move: relocates the king (from/to) and rook (from/to)
-// to their destination squares, clearing both origin squares. Doesn't touch castling rights,
-// en passant target, or side to move - callers still own those (see
-// ForfeitCastlingRightsForMove for the rights half) since they're stored differently by
-// ChessRules (plain members) and MoveGenerator (PositionState fields). Doesn't validate
-// legality either, same contract as ApplyMoveOnBoard.
+// Mutates board in place for a castling move: relocates king and rook, clearing both origin
+// squares. Doesn't touch castling rights, en passant target, or side to move - callers own
+// those (see ForfeitCastlingRightsForMove). Doesn't validate legality.
 void ApplyCastleOnBoard(BoardState& board, int kingFrom, int kingTo, int rookFrom, int rookTo);
 
-// The square a capturing pawn's en passant target pawn actually sits on: same file as the
-// capture's destination, same rank as the capturing pawn's origin. Shared by every caller that
-// resolves an en-passant capture (ChessRules::ApplySanMove, MoveGenerator's legality check and
-// ApplyMove) so the formula only lives in one place.
+// Square the captured pawn sits on for an en passant capture: same file as the destination,
+// same rank as the capturing pawn's origin.
 [[nodiscard]] int EnPassantCaptureSquare(int from, int to);
 
 // Has-moved castling-rights forfeiture for one applied move: a king move forfeits both rights
-// for its side; either end of the move landing on a rook's home square (it moved away, or was
-// just captured there) forfeits that specific right - checked unconditionally against `from`/
-// `to` regardless of movedType, since a captured rook's own type never appears here as the
-// mover. movedColor is only consulted for the King branch.
+// for its side; either end of the move landing on a rook's home square (moved away, or just
+// captured there) forfeits that right - checked unconditionally against `from`/`to` regardless
+// of movedType.
 void ForfeitCastlingRightsForMove(CastlingRights& rights, PieceType movedType, PieceColor movedColor, int from, int to);
 }  // namespace ChessBoardOps

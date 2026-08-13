@@ -221,10 +221,8 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
 
     if (candidates.size() > 1)
     {
-        // Pure geometric reachability can leave more than one candidate when one of them is
-        // actually pinned to its own king (and therefore illegal) - resolve that narrow case
-        // by simulating each candidate and keeping only ones that don't leave the mover's own
-        // king in check afterward. Scoped to only run on genuine ambiguity, not every move.
+        // Geometric reachability alone can leave multiple candidates when one is pinned to its
+        // own king; resolve by simulating each and keeping only ones that don't self-check.
         std::vector<int> legal;
         for (int candidate : candidates)
         {
@@ -253,12 +251,9 @@ std::optional<std::string> ChessRules::ApplySanMove(std::string_view sanInput)
 
     ChessBoardOps::ApplyMoveOnBoard(m_Board, source, destIndex, parsed->Promotion, enPassantCaptureSquare);
 
-    // Castling-rights bookkeeping (has-moved only, per the header comment on
-    // GetCastlingRights) - a king move forfeits both rights for its side; a rook's home square
-    // being either vacated (it moved) or landed on (it was just captured there, since the
-    // candidate search above already rejects landing on a same-color piece) forfeits that one
-    // right. Checked unconditionally rather than only for King/Rook movers since destIndex can
-    // be a rook's home square regardless of which piece type captured it there.
+    // A king move forfeits both rights; a rook's home square being vacated or landed on (i.e.
+    // captured there) forfeits that one right - checked unconditionally since destIndex can be
+    // a rook's home square regardless of which piece type captured it.
     ChessBoardOps::ForfeitCastlingRightsForMove(m_Rights, parsed->Type, m_SideToMove, source, destIndex);
 
     m_EnPassantTarget.reset();

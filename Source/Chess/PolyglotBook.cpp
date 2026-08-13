@@ -10,13 +10,9 @@
 namespace
 {
 // The official Polyglot "Random64" constants (781 of them: piece[12][64] + castle[4] +
-// enpassant[8] + turn[1]) - a fixed, publicly published table every Polyglot-compatible tool
-// (the original PolyGlot, Arena, CuteChess, python-chess, ...) uses verbatim, so a book built
-// by any of them hashes identically here. Transcribed from python-chess's
-// chess/polyglot.py::POLYGLOT_RANDOM_ARRAY and independently verified against it against the
-// two published Polyglot test vectors (see Tests/PolyglotBookTests.cpp) - a wrong constant
-// anywhere in this table would silently break every lookup, so that verification is not
-// optional.
+// enpassant[8] + turn[1]), transcribed from python-chess's polyglot.py::POLYGLOT_RANDOM_ARRAY
+// and verified against the published Polyglot test vectors (see Tests/PolyglotBookTests.cpp) -
+// a wrong constant anywhere here would silently break every lookup.
 constexpr std::array<std::uint64_t, 781> kRandom64 = {
     0x9D39247E33776D41ULL, 0x2AF7398005AAA5C7ULL, 0x44DB015024623547ULL, 0x9C15F73E62A76AE2ULL,
     0x75834465489C0C89ULL, 0x3290AC3A203001BFULL, 0x0FBBAD1F61042279ULL, 0xE83A908FF2FB60CAULL,
@@ -216,21 +212,17 @@ constexpr std::array<std::uint64_t, 781> kRandom64 = {
     0xF8D626AAAF278509ULL,
 };
 
-// piece[12][64] block index within kRandom64 for a given piece - within each PieceType's pair
-// of 64-entry blocks, the black instance is first (even kind index), the white instance
-// second (odd), matching Polyglot's own convention (kind = pieceType * 2 + (white ? 1 : 0),
-// pieceType already 0-indexed Pawn..King per PieceType's own declaration order).
+// piece[12][64] block index within kRandom64 for a given piece - Polyglot's own convention is
+// kind = pieceType * 2 + (white ? 1 : 0), so black's block comes first within each pair.
 int PieceKindIndex(const Piece& piece)
 {
     return static_cast<int>(piece.Type) * 2 + (piece.Color == PieceColor::White ? 1 : 0);
 }
 
-// Polyglot's castling quirk: a castling move is encoded as the king "moving to" the rook's
-// own home square (e.g. White O-O is e1h1, not e1g1) rather than the real two-square king
-// move - geometrically unambiguous to detect, since a king starting on e1/e8 can never
-// legally reach a corner square in one normal (non-castling) move (max one square in any
-// direction), so any from==e1/e8, to==a1/h1/a8/h8 pair is always this encoding, never a real
-// attempted move.
+// Polyglot's castling quirk: a castling move is encoded as the king "moving to" the rook's own
+// home square (e.g. White O-O is e1h1, not e1g1). Unambiguous to detect - a king can never
+// legally reach a corner square in one normal move, so any e1/e8 -> a1/h1/a8/h8 pair is always
+// this encoding.
 int RemapCastlingDestination(int from, int to)
 {
     if (from == SquareIndex(4, 0))
@@ -270,8 +262,7 @@ char PromotionLetter(int promotionField)
 
 // Decodes a Polyglot 16-bit move into a UCI string. Bit layout: toSquare = bits[0:6),
 // fromSquare = bits[6:12), promotion = bits[12:15) - toSquare/fromSquare already pack as
-// (rank << 3) | file, i.e. exactly this codebase's own SquareIndex(file, rank) encoding, so
-// no separate file/rank fields need to be extracted.
+// (rank << 3) | file, matching this codebase's own SquareIndex(file, rank) encoding.
 std::string DecodeMove(std::uint16_t raw)
 {
     const int to = raw & 0x3F;
@@ -317,10 +308,9 @@ std::uint64_t PolyglotBook::ComputeHash(const BoardState& board, PieceColor side
         const int file = *enPassantTarget % 8;
         const int rank = *enPassantTarget / 8;
 
-        // Only counted if a pawn of the side to move can actually capture en passant right
-        // now (adjacent file, one rank toward the mover from the target square) - not merely
-        // "a double push just happened". Verified against the published Polyglot test vectors
-        // in Tests/PolyglotBookTests.cpp, including one where this branch must NOT fire.
+        // Only counted if a pawn of the side to move can actually capture en passant right now
+        // - not merely "a double push just happened". Verified against the published Polyglot
+        // test vectors, including one where this branch must NOT fire.
         const int pawnRank = (sideToMove == PieceColor::White) ? rank - 1 : rank + 1;
         bool capturable = false;
         if (pawnRank >= 0 && pawnRank <= 7)
@@ -392,10 +382,9 @@ bool PolyglotBook::Load(const std::filesystem::path& path)
         m_Entries.push_back(Entry{key, move, weight});
     }
 
-    // The format guarantees entries are pre-sorted by key, but a malformed/hand-edited file
-    // could violate that - FindMove()'s binary search requires it, so defensively re-sort
-    // rather than trusting the file. A no-op pass over an already-sorted (the common case)
-    // file.
+    // The format guarantees entries are pre-sorted by key, but a malformed file could violate
+    // that and FindMove()'s binary search requires it - re-sort defensively rather than trust
+    // the file.
     std::sort(m_Entries.begin(), m_Entries.end(), [](const Entry& a, const Entry& b) { return a.Key < b.Key; });
 
     LOG_INFO("PolyglotBook::Load: loaded {} entries from '{}'", m_Entries.size(), path.string());
@@ -428,9 +417,8 @@ std::optional<std::string> PolyglotBook::FindMove(const BoardState& board, Piece
     const auto begin = std::lower_bound(m_Entries.begin(), m_Entries.end(), hash, [](const Entry& entry, std::uint64_t key) { return entry.Key < key; });
     const auto end = std::upper_bound(begin, m_Entries.end(), hash, [](std::uint64_t key, const Entry& entry) { return key < entry.Key; });
 
-    // Weight 0 is Polyglot's conventional "soft delete" marker (remove an entry without
-    // compacting the file) - excluded from selection like every other Polyglot-compatible
-    // reader does, rather than treated as a legitimately-playable-but-unlikely move.
+    // Weight 0 is Polyglot's conventional "soft delete" marker - excluded from selection like
+    // every other Polyglot-compatible reader does.
     const Entry* best = nullptr;
     std::uint32_t totalWeight = 0;
     for (auto it = begin; it != end; ++it)
@@ -466,9 +454,8 @@ std::optional<std::string> PolyglotBook::FindMove(const BoardState& board, Piece
 
     const std::string uci = DecodeMove(chosen->Move);
 
-    // Defends against a hash collision or a book file that doesn't actually match the game
-    // being played - never hand back a move without confirming the mover's own piece is
-    // really sitting on the decoded from-square.
+    // Defends against a hash collision or a mismatched book file - never hand back a move
+    // without confirming the mover's own piece really sits on the decoded from-square.
     const int fromSquare = SquareFromAlgebraic(uci, 0);
     const std::optional<Piece>& mover = board[fromSquare];
     if (!mover || mover->Color != sideToMove)

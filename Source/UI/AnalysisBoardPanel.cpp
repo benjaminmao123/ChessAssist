@@ -102,18 +102,15 @@ void AnalysisBoardPanel::Draw()
             m_Session->StepForward();
     }
 
-    // Current-position FEN (see AnalysisBoardSession::GetFen()) - read-only but still
-    // selectable/copyable (Ctrl+C, or drag-select) since it's a real InputText rather than
-    // plain Text, plus an explicit Copy button for anyone who'd rather click. Recomputed fresh
-    // every frame (cheap - just a board scan), so it's always in sync with whatever's currently
-    // displayed, including hypothetical moves and pasted FEN alike.
+    // Current-position FEN - read-only but still selectable/copyable (Ctrl+C, or drag-select)
+    // since it's a real InputText rather than plain Text, plus an explicit Copy button.
+    // Recomputed fresh every frame (cheap - just a board scan), so it's always in sync.
     const std::string currentFen = m_Session->GetFen();
     char fenDisplayBuffer[128];
     std::snprintf(fenDisplayBuffer, sizeof(fenDisplayBuffer), "%s", currentFen.c_str());
     // A plain -FLT_MIN width here would claim the entire row, pushing the Copy FEN button past
-    // the window's right edge - reserve exactly the button's own width (plus the gap
-    // ImGui::SameLine() leaves) instead, the standard "text field with a trailing button"
-    // idiom (see ImGui::PushItemWidth's own docs on negative widths).
+    // the window's right edge - reserve exactly the button's own width instead, the standard
+    // "text field with a trailing button" idiom.
     const float copyButtonWidth = ImGui::CalcTextSize("Copy FEN").x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetNextItemWidth(-(copyButtonWidth + ImGui::GetStyle().ItemSpacing.x));
     ImGui::InputText("##CurrentFen", fenDisplayBuffer, sizeof(fenDisplayBuffer), ImGuiInputTextFlags_ReadOnly);
@@ -122,8 +119,7 @@ void AnalysisBoardPanel::Draw()
         ImGui::SetClipboardText(currentFen.c_str());
 
     // FEN paste - sets the position directly, discarding whatever was played before (see
-    // AnalysisBoardSession::LoadFen()'s comment). Enter submits, same as the field's own text
-    // cursor leaving it; the button is an explicit alternative for anyone who'd rather click.
+    // AnalysisBoardSession::LoadFen()). Enter submits; the button is an explicit alternative.
     // Same trailing-button width reservation as the current-FEN field above.
     const float loadButtonWidth = ImGui::CalcTextSize("Load FEN").x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::SetNextItemWidth(-(loadButtonWidth + ImGui::GetStyle().ItemSpacing.x));
@@ -141,14 +137,11 @@ void AnalysisBoardPanel::Draw()
 
     const std::optional<EngineInfoPanel::MateInfo> mateInfo = m_EnginePanel->GetMateInfo();
 
-    // Fills whatever space the panel actually has - same layout approach as BoardStatePanel's
-    // own board (see its comment). The controls/FEN rows above are already excluded from
-    // available.y automatically (GetContentRegionAvail() is queried after they're drawn, so
-    // ImGui's own cursor tracking already accounts for their height) - reservedForText only
-    // needs to cover what's drawn *after* the board via Dummy()/direct draw calls:
-    // EngineInfoPanel::DrawContents()'s Depth/Score/Nodes/Nps/PV(up to 2 wrapped lines)/
-    // separator/Best move, the same ~8 lines BoardStatePanel reserves 9 for minus its Accuracy
-    // line (this panel has no accuracy concept).
+    // Fills whatever space the panel actually has - same layout approach as BoardStatePanel's own
+    // board. The controls/FEN rows above are already excluded from available.y automatically
+    // (GetContentRegionAvail() is queried after they're drawn); reservedForText only needs to
+    // cover what's drawn after the board (EngineInfoPanel::DrawContents()'s fields) - one line
+    // less than BoardStatePanel reserves, since this panel has no Accuracy line.
     const ImVec2 available = ImGui::GetContentRegionAvail();
     const float reservedForText = ImGui::GetTextLineHeightWithSpacing() * 8.0f;
     const float availableForBoardWidth = available.x - kChessBoardEvalBarWidth - kChessBoardEvalBarGap;
@@ -194,10 +187,9 @@ void AnalysisBoardPanel::Draw()
         drawList->AddRectFilled(checkMin, checkMax, kChessBoardCheckHighlightColor);
     }
 
-    // Alternate candidate moves (see AnalysisBoardSession::GetAlternateMoves()) - "other possible
-    // moves that aren't necessarily the best," each its own color, drawn first/thinnest so the
-    // lookahead and primary arrows both still read as more prominent on top of them. Gated
-    // behind m_ShowAlternateMoves, same as BoardStatePanel's own.
+    // Alternate candidate moves - each its own color, drawn first/thinnest so the lookahead and
+    // primary arrows read as more prominent on top of them. Gated behind m_ShowAlternateMoves,
+    // same as BoardStatePanel's own.
     if (m_ShowAlternateMoves)
     {
         const std::vector<std::string> alternateMoves = m_Session->GetAlternateMoves();

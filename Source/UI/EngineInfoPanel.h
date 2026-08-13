@@ -19,9 +19,8 @@ public:
     void UpdateBestMove(const BestMoveResult& result);
 
     // Draws depth/score/nodes/nps/PV/best-move as plain widgets, without an owning
-    // ImGui::Begin()/End() of its own - the caller (BoardStatePanel, which consolidates this
-    // alongside the visual board) is responsible for that. Not thread-safe: call once per
-    // frame from the UI thread only, inside an existing window.
+    // ImGui::Begin()/End() of its own - the caller is responsible for that. Not thread-safe:
+    // call once per frame from the UI thread only, inside an existing window.
     void DrawContents();
 
     // White's-perspective evaluation fraction for an eval bar: 0 = totally winning for Black,
@@ -29,12 +28,10 @@ public:
     // always returns 0 or 1 outright; otherwise see the .cpp comment on the tanh compression.
     [[nodiscard]] std::optional<float> GetWhiteWinFraction() const;
 
-    // Forced-mate read on the latest search info, if any (a plain cp score - even a lopsided
-    // one - returns nullopt here). DistanceInMoves is always positive (moves until mate, from
-    // whichever side is to move in the analyzed position); WhiteIsMating says which side is
-    // actually delivering it, resolved the same mate-0-safe way as DrawContents()'s text (see
-    // SideToMoveMateMagnitude's comment). Display code (BoardStatePanel) uses this for an
-    // on-board "mate in N" banner and to distinguish the mating move's arrow.
+    // Forced-mate read on the latest search info, if any (a plain cp score returns nullopt here).
+    // DistanceInMoves is always positive (moves until mate); WhiteIsMating says which side is
+    // actually delivering it, resolved the same mate-0-safe way as DrawContents() (see
+    // SideToMoveMateMagnitude's comment).
     struct MateInfo
     {
         int DistanceInMoves = 0;

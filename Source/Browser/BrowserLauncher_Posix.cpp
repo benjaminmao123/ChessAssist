@@ -63,7 +63,7 @@ struct BrowserLauncher::Impl
                 break;
             }
 
-            usleep(10000);  // 10ms
+            usleep(10000);
         }
 
         if (!exited)
@@ -97,9 +97,8 @@ std::expected<void, BrowserError> BrowserLauncher::Launch(std::uint16_t port, co
     std::string profileArg = "--user-data-dir=" + profileDir.string();
     std::string noFirstRunArg = "--no-first-run";
     std::string noDefaultBrowserArg = "--no-default-browser-check";
-    // Without this, Chrome's DevTools anti-DNS-rebinding check rejects the WebSocket
-    // upgrade from any client that isn't itself a browser tab (HTTP 403 on the handshake) -
-    // this flag explicitly allows a non-browser CDP client like this one to connect.
+    // Without this, Chrome's DevTools anti-DNS-rebinding check rejects the WebSocket upgrade
+    // from any non-browser client with HTTP 403 - needed for a CDP client like this one to connect.
     std::string allowOriginsArg = "--remote-allow-origins=*";
 
     std::vector<char*> argv;

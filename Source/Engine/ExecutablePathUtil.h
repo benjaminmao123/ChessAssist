@@ -12,15 +12,13 @@ std::filesystem::path GetLogsDirectory();
 std::filesystem::path GetBrowserProfileDirectory();
 std::filesystem::path GetSettingsFilePath();
 
-// Where Dear ImGui's own window/dock layout state is persisted (see AppWindow::Init()'s
-// io.IniFilename) - next to the executable, like GetSettingsFilePath(), rather than left at
-// ImGui's default "imgui.ini" (relative to whatever the current working directory happens to
-// be at launch, not necessarily the exe's own directory).
+// Where Dear ImGui's window/dock layout is persisted (see AppWindow::Init()'s io.IniFilename) -
+// next to the executable rather than ImGui's default "imgui.ini" (relative to the current
+// working directory, not necessarily the exe's own).
 std::filesystem::path GetImGuiIniFilePath();
 
-// Opens a native "choose a file" dialog (filtered to .exe) for picking a UCI engine
-// executable - requires NFD_Init() to have been called first (see main.cpp) and NFD_Quit()
-// at shutdown. Returns nullopt if the user cancelled or the dialog failed.
+// Opens a native "choose a file" dialog filtered to .exe - requires NFD_Init() to have been
+// called first (see main.cpp) and NFD_Quit() at shutdown.
 std::optional<std::filesystem::path> PromptForEnginePath();
 
 // Same as PromptForEnginePath(), but filtered to .bin for picking a Polyglot opening book.

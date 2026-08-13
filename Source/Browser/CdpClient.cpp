@@ -127,10 +127,9 @@ std::expected<void, CdpError> CdpClient::Connect(const std::string& webSocketDeb
     m_Impl->ConnectOpened = false;
     m_Impl->ConnectFailed = false;
 
-    // Reset state left over from a previous connection - in particular ConnectionLost, set by
-    // HandleMessage on the old socket's Close/Error event (including the one Disconnect()'s
-    // WebSocket.stop() triggers on a normal reconnect). Without this, every SendCommand on the
-    // new connection fails immediately with "connection lost", even though it's healthy.
+    // Reset state left over from a previous connection, in particular ConnectionLost (set by
+    // HandleMessage on the old socket's Close/Error, including the one Disconnect() triggers
+    // on a normal reconnect) - otherwise every SendCommand on the new connection fails immediately.
     {
         std::scoped_lock lock(m_Impl->PendingMutex);
         m_Impl->ConnectionLost = false;

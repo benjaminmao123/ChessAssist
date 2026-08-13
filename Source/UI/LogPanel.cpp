@@ -81,10 +81,10 @@ void LogPanel::Draw()
 
     if (m_Selectable)
     {
-        // TextUnformatted/Selectable don't support mouse-drag text selection in Dear ImGui;
-        // a read-only InputTextMultiline does, which is what actually lets you drag-select
-        // and Ctrl+C a snippet (e.g. a FEN string) out of the log. Traded off against the
-        // per-line coloring and auto-scroll the normal clipped view below has.
+        // TextUnformatted/Selectable don't support mouse-drag text selection in Dear ImGui; a
+        // read-only InputTextMultiline does, letting you drag-select and Ctrl+C a snippet (e.g.
+        // a FEN string) out of the log - traded off against the per-line coloring and auto-scroll
+        // the normal clipped view below has.
         std::string filtered;
         const char* textBegin = bufStart;
         const char* textEnd = bufEnd;
@@ -108,11 +108,9 @@ void LogPanel::Draw()
 
         if (m_ScrollSelectableToBottomPending)
         {
-            // x = -1 leaves horizontal scroll untouched; y = FLT_MAX gets clamped to the
-            // widget's actual max scroll once its content size is known this frame - the
-            // standard ImGui idiom for "scroll to bottom" when applied via SetNextWindowScroll
-            // rather than from inside the target window itself (see ScrollTargetCenterRatio
-            // handling in Begin()).
+            // x = -1 leaves horizontal scroll untouched; y = FLT_MAX gets clamped to the widget's
+            // actual max scroll once its content size is known this frame - the standard ImGui
+            // idiom for "scroll to bottom" via SetNextWindowScroll.
             ImGui::SetNextWindowScroll(ImVec2(-1.0f, FLT_MAX));
             m_ScrollSelectableToBottomPending = false;
         }
@@ -123,10 +121,10 @@ void LogPanel::Draw()
     {
         ImGui::BeginChild("LogScrollRegion", ImVec2(0, 0), false);
 
-        // Word-wrapped lines have variable height, which rules out ImGuiListClipper's
-        // fixed-row-height fast path - so this walks every line each frame rather than just
-        // the visible slice. Acceptable for an in-app diagnostic log at this volume; revisit
-        // with a height-aware clipper (ImGuiListClipper::IncludeItemByIndex) if that changes.
+        // Word-wrapped lines have variable height, which rules out ImGuiListClipper's fixed-row-
+        // height fast path, so this walks every line each frame rather than just the visible
+        // slice. Acceptable at this volume; revisit with a height-aware clipper
+        // (ImGuiListClipper::IncludeItemByIndex) if that changes.
         ImGui::PushTextWrapPos(0.0f);
         for (int lineIndex = 0; lineIndex < m_LineOffsets.Size; ++lineIndex)
         {

@@ -116,8 +116,8 @@ std::optional<std::string> SandboxSession::GetLookaheadMove() const
 
     // Validate against a position with the suggestion actually applied, rather than trusting
     // the string and drawing it straight onto the still-one-ply-behind board - see
-    // GameSession::GetLookaheadMove()'s comment for why (a pawn move, especially en passant,
-    // can otherwise look outright illegal).
+    // GameSession::GetLookaheadMove()'s comment (a pawn move, especially en passant, can
+    // otherwise look outright illegal).
     if (!MoveGenerator::VerifyTwoPlyContinuation(m_Current, candidate->OwnMove, candidate->ReplyMove))
         return std::nullopt;
 

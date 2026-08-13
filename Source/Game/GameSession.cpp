@@ -22,12 +22,9 @@ constexpr std::uint16_t kCdpPort = 9333;
 // rather than falling behind the clock, at the cost of search quality.
 constexpr int kBlitzMoveTimeMs = 150;
 
-// Premoving's quick-verify fallback search time (see GameSession::SetPremoveEnabled) - used
-// when the opponent didn't play the predicted move, so autoplay still responds fast instead
-// of falling back to the full configured Elo/Blitz search length. Deliberately a bit more
-// generous than Blitz's own movetime: this path runs on a real, unpredicted position (as
-// opposed to blitz mode's every move), so it's worth spending slightly more to reduce the
-// chance of a bad quick decision.
+// Premoving's quick-verify fallback search time (see GameSession::SetPremoveEnabled) - a bit
+// more generous than Blitz's own movetime, since this path runs on a real, unpredicted position
+// rather than every move, so it's worth spending slightly more to reduce a bad quick decision.
 constexpr int kPremoveVerifyMoveTimeMs = 300;
 
 // No-Elo-cap default - unchanged from what RequestEngineMove hardcoded before SetEloTarget
@@ -77,21 +74,18 @@ float ScoreToCentipawns(const SearchInfo& info)
     {
         constexpr float kMateEquivalentCp = 10000.0f;
         const float mate = static_cast<float>(*info.ScoreMate);
-        // "mate 0" isn't the side to move delivering mate in zero of their own moves (not a
-        // coherent state) - it's the engine reporting that this position already IS
-        // checkmate against the side to move (no legal moves, in check), which is the worst
-        // possible outcome for them, not the best. Only mate > 0 is a win for them; mate == 0
-        // must fall into the same "loss" branch as negative (mated-in-N) values, or the move
-        // that actually delivered mate gets scored as a catastrophic blunder instead of a
-        // perfect move once the resulting (now-terminal) position is evaluated.
+        // "mate 0" means this position already IS checkmate against the side to move - the
+        // worst outcome for them, not a win. Only mate > 0 is a win, so mate == 0 must fall into
+        // the same "loss" branch as negative (mated-in-N) values, or the move that delivered
+        // mate would get scored as a blunder instead of perfect.
         return mate > 0.0f ? (kMateEquivalentCp - mate) : (-kMateEquivalentCp - mate);
     }
     return static_cast<float>(info.ScoreCp.value_or(0));
 }
 
 // Picks the artificial pre-move delay for a freshly queued autoplay move (see
-// GameSession::SetMoveDelay) - a fresh draw per call, not a shared/seeded sequence, since this
-// only ever needs to look unpredictable to whatever's watching the board, not be reproducible.
+// GameSession::SetMoveDelay) - a fresh draw per call since this only needs to look unpredictable,
+// not be reproducible.
 int RandomMoveDelayMs(int minMs, int maxMs)
 {
     if (maxMs <= minMs)
@@ -222,24 +216,18 @@ std::vector<std::string> GameSession::Poll()
     {
         if (!m_CdpClient.IsConnected())
         {
-            // The browser (or just the tab being watched) closed out from under us - the
-            // WebSocket is gone for good, not coming back on its own, so retrying every poll
-            // tick forever would just spam this same failure. Nothing else notices this on
-            // its own either: m_Connected would otherwise stay true even after the browser is
-            // relaunched, since that only spawns a fresh Chrome process/CDP endpoint - it
-            // doesn't do anything about this now-dead m_CdpClient - so Connect (not just
-            // Launch Browser) would still be required to actually recover. Resetting here
-            // leaves the same state a manual Disconnect does, which the UI reflects
-            // immediately, and which Connect can cleanly re-establish once a browser/tab
-            // exists again.
+            // The browser (or the watched tab) closed out from under us - the WebSocket is gone
+            // for good, so retrying every poll tick would just spam this failure. Relaunching
+            // the browser alone wouldn't fix it either (that only spawns a fresh Chrome
+            // process/CDP endpoint, not a reconnect), so reset to the same state a manual
+            // Disconnect leaves, letting ConnectToSite() cleanly re-establish later.
             LOG_WARN("Poll: CDP connection lost - resetting to disconnected");
             Disconnect();
             return newMoves;
         }
 
         // Transient and the connection itself is still alive - a slow round trip, a JS
-        // exception, a malformed response. Don't tear down the connection over one failed
-        // poll tick; just retry next tick.
+        // exception, a malformed response. Don't tear down over one failed tick; just retry.
         LOG_WARN("Poll: CDP evaluate failed: {}", jsResult.error().Message);
         return newMoves;
     }
@@ -258,16 +246,10 @@ std::vector<std::string> GameSession::Poll()
     switch (diff.Kind)
     {
     case MoveListDiffKind::NoChange:
-        // The page's move-list growing is what normally triggers RequestEngineMove() below -
-        // that never fires for a freshly-connected game still at 0 moves (nothing to detect
-        // as "new"), so the engine would otherwise never analyze the starting position (and
-        // autoplay would never make an opening move) until *something* changed the move count
-        // first. Seed it here, once, the first time a poll finds the tracker still empty after
-        // connecting (ConnectToSite() clears m_InitialMoveRequested but can't itself know
-        // whether the just-opened game already has moves, so it can't seed the request
-        // directly). ResetToFreshGame below seeds its own zero-move case immediately rather
-        // than relying on this branch catching a subsequent tick - this one's now purely the
-        // fresh-connection fallback.
+        // RequestEngineMove() below is normally triggered by the move list growing, which never
+        // fires for a freshly-connected game still at 0 moves - so seed it once here, the first
+        // time a poll finds the tracker still empty after connecting. (ResetToFreshGame seeds
+        // its own zero-move case immediately, so this is purely the fresh-connection fallback.)
         if (!m_InitialMoveRequested && m_Tracker.GetMoves().empty())
         {
             LOG_INFO("Poll: still at the starting position after connecting - requesting an initial engine move");
@@ -276,9 +258,8 @@ std::vector<std::string> GameSession::Poll()
         return newMoves;
 
     case MoveListDiffKind::AmbiguousShrink:
-        // Could be a real reset, could be a flaky/mid-render DOM read. Don't silently
-        // discard tracked state (and any in-flight engine analysis) on a guess - require the
-        // user to explicitly reconnect.
+        // Could be a real reset or a flaky/mid-render DOM read - don't discard tracked state
+        // on a guess; require the user to explicitly reconnect.
         LOG_WARN("Poll: move list shrank unexpectedly ({} -> {} moves) - tracking desynced, reconnect to resync", m_Tracker.GetMoves().size(), state->SanMoves.size());
         m_Desynced = true;
         return newMoves;
@@ -319,22 +300,17 @@ std::vector<std::string> GameSession::Poll()
     }
     else if (diff.Kind == MoveListDiffKind::ResetToFreshGame && m_Tracker.GetMoves().empty())
     {
-        // A reset straight to 0 moves (the common case - this poll tick usually catches the
-        // reset before either side has moved) has no opening move for the loop above to have
-        // applied, so newMoves is empty and nothing above requested a move for the new game.
-        // Seed it here, immediately, rather than deferring to the NoChange branch's own
-        // "still empty after connecting" fallback on some *later* tick: that fallback only
-        // fires on a tick that lands cleanly on NoChange, which isn't guaranteed to be the
-        // very next one (a transiently null/errored extraction, or another diff classification
-        // while the page is still settling, can both intervene) - until it does, autoplay and
-        // the engine panel silently keep showing the previous game's last position/move/eval,
-        // exactly the "have to retoggle autoplay" symptom this was seeding around.
+        // A reset straight to 0 moves has no opening move for the loop above to apply, so
+        // nothing requested a move for the new game yet. Seed it here immediately rather than
+        // deferring to the NoChange branch's fallback, which isn't guaranteed to run on the very
+        // next tick - until it does, autoplay and the engine panel would keep silently showing
+        // the previous game's stale position/move/eval.
         LOG_INFO("Poll: fresh game has no moves yet - requesting an initial engine move");
         RequestEngineMove(ShouldQuickVerify());
     }
 
     // A real move landed, or the game reset (even to 0 moves) - see GetPositionGeneration()'s
-    // comment for why NoChange/AmbiguousShrink deliberately don't bump this.
+    // comment for why NoChange/AmbiguousShrink don't bump this.
     if (!newMoves.empty() || diff.Kind == MoveListDiffKind::ResetToFreshGame)
         ++m_PositionGeneration;
 
@@ -348,13 +324,10 @@ bool GameSession::HasDesynced() const
 
 void GameSession::SetAutoplayEnabled(bool enabled)
 {
-    // Without this, turning autoplay on only takes effect starting from the *next* detected
-    // move: OnEngineBestMove only queues a result from a freshly-started search, and Poll()
-    // only starts one when the move list changes - so a result already computed (and
-    // discarded, since autoplay was off) for whatever position is on the board right now
-    // never gets replayed just because the flag flipped. Re-requesting here re-runs analysis
-    // for the current position so autoplay can act on it immediately instead of waiting for
-    // the opponent's next move.
+    // Without this, turning autoplay on only takes effect from the *next* detected move:
+    // OnEngineBestMove only queues a result from a freshly-started search, and Poll() only
+    // starts one when the move list changes. Re-requesting here re-runs analysis for the current
+    // position so autoplay can act immediately instead of waiting for the opponent's next move.
     const bool wasEnabled = m_AutoplayEnabled.exchange(enabled);
 
     if (enabled && !wasEnabled && m_Connected && !m_Desynced)
@@ -410,9 +383,8 @@ void GameSession::PlayBestMoveNow()
 void GameSession::OnEngineBestMove(const BestMoveResult& result)
 {
     // This search only ran to populate display/accuracy side effects (see m_CosmeticSearch's
-    // comment) - the opening book already decided and published this turn's actual move, so
-    // this result itself must be discarded rather than overwriting m_SuggestedMove or queuing a
-    // second, possibly-different autoplay move.
+    // comment) - the opening book already decided this turn's move, so this result must be
+    // discarded rather than overwriting m_SuggestedMove or queuing a second autoplay move.
     if (m_CosmeticSearch.load())
     {
         LOG_DEBUG("OnEngineBestMove: '{}' discarded - cosmetic search for a book-decided move", result.BestMove);
@@ -425,9 +397,9 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
     const PieceColor requestedSide = m_RequestedForSide.load();
     const bool isOurTurn = requestedSide == myColor;
 
-    // Shown as the board arrow regardless of whose turn this was analyzing (see
-    // BoardStatePanel::Draw) - unlike m_PendingAutoMove below, which stays strictly
-    // isOurTurn-gated since actually playing a move for the opponent would be nonsensical.
+    // Shown as the board arrow regardless of whose turn this was analyzing - unlike
+    // m_PendingAutoMove below, which stays isOurTurn-gated since playing a move for the
+    // opponent would be nonsensical.
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove = result.BestMove;
@@ -435,13 +407,11 @@ void GameSession::OnEngineBestMove(const BestMoveResult& result)
 
     if (!isOurTurn)
     {
-        // This search analyzed the position right after whatever move the tracked player
-        // actually just made - autoplay's own suggestion, a premove, or a human manually
-        // playing on the site, doesn't matter which. If there's a pending "before" eval from
-        // when it became their turn, this is exactly the "after" search that scores that
-        // move - see GetAccuracyPercent()'s comment. Deliberately independent of
-        // m_AutoplayEnabled below: accuracy tracks whatever actually got played regardless of
-        // who/what played it.
+        // This search analyzed the position right after whatever move the tracked player just
+        // made (autoplay, a premove, or a manual move - doesn't matter which). If there's a
+        // pending "before" eval, this is the "after" search that scores that move - see
+        // GetAccuracyPercent()'s comment. Independent of m_AutoplayEnabled below: accuracy
+        // tracks whatever actually got played.
         if (const std::optional<AccuracyTracker::MoveScore> score = m_Accuracy.TryScoreMove())
             LOG_INFO("OnEngineBestMove: scored the tracked player's last move at {:.1f}% accuracy (avg {:.1f}% over {} move(s))", score->MoveAccuracyPercent, score->RunningAveragePercent, score->MoveCount);
     }
@@ -467,11 +437,10 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     const PieceColor myColor = MyColor();
     const bool isOurTurn = m_RequestedForSide.load() == myColor;
 
-    // Alternate-line candidate moves (see GetAlternateMoves()) - collected regardless of whose
-    // turn this search is analyzing, same scope as m_SuggestedMove itself. Independent of
-    // everything below, which (accuracy tracking, the premove candidate) must only ever look at
-    // the primary (multipv 1) line - a multipv>=2 line is a deliberately weaker alternative, not
-    // a real read on the position.
+    // Alternate-line candidate moves - collected regardless of whose turn this search is
+    // analyzing, same scope as m_SuggestedMove. Independent of everything below, which (accuracy
+    // tracking, the premove candidate) must only look at the primary (multipv 1) line - a
+    // multipv>=2 line is a deliberately weaker alternative, not a real read on the position.
     m_AlternateMoves.OnInfo(info);
 
     if (info.MultiPvIndex != 1)
@@ -479,11 +448,10 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
 
     if (info.ScoreCp || info.ScoreMate)
     {
-        // Accuracy tracking: perspectiveCp is always "how good for the tracked player",
-        // whichever side's turn is actually being searched - continuously overwritten as the
-        // search deepens (same "last update wins" idea as m_PremoveCandidate below), paired
-        // off in OnEngineBestMove once the relevant search completes. See
-        // GetAccuracyPercent()'s comment for the full scheme.
+        // Accuracy tracking: perspectiveCp is always "how good for the tracked player" -
+        // continuously overwritten as the search deepens ("last update wins"), paired off in
+        // OnEngineBestMove once the relevant search completes. See GetAccuracyPercent()'s
+        // comment for the full scheme.
         const float perspectiveCp = ScoreToCentipawns(info) * (isOurTurn ? 1.0f : -1.0f);
         if (isOurTurn)
             m_Accuracy.RecordBeforeEval(perspectiveCp);
@@ -496,9 +464,9 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     if (!isOurTurn)
         return;
 
-    // Need at least [ourMove, theirReply, ourNextMove] - shallow early-search PVs that
-    // haven't reached that far yet just leave whatever candidate a previous (deeper) info
-    // line for this same search already set, rather than clearing it.
+    // Need at least [ourMove, theirReply, ourNextMove] - shallow early-search PVs that haven't
+    // reached that far yet just leave whatever candidate a previous, deeper info line already
+    // set.
     if (info.Pv.size() < 3)
         return;
 
@@ -546,7 +514,7 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
 
     // Resolved before touching m_PremoveMutex, not nested within its lock - GetSuggestedMove()
     // takes m_SuggestedMoveMutex itself, and this keeps the two mutexes from ever needing to be
-    // held simultaneously anywhere in this class.
+    // held at the same time.
     const std::optional<std::string> anchor = isOurTurn ? GetSuggestedMove() : (m_Tracker.GetMoves().empty() ? std::nullopt : std::make_optional(m_Tracker.GetMoves().back()));
     if (!anchor)
         return std::nullopt;
@@ -555,22 +523,19 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     if (!candidate || candidate->ExpectedOwnMove != *anchor)
         return std::nullopt;  // stale - the candidate no longer describes the current anchor
 
-    // Belt-and-braces against the ExpectedOwnMove string coincidentally matching the anchor
-    // again at a *different* point in the game (e.g. the same square-pair gets suggested twice,
-    // many moves apart) - the string check above can't tell those apart, but the position
-    // generation can't lie: on our own turn the candidate must have been computed for the
-    // position still on the board right now; on the opponent's turn, exactly one real move
-    // (ours) has landed since.
+    // Belt-and-braces against ExpectedOwnMove's string coincidentally matching the anchor again
+    // at a *different* point in the game (the string check above can't tell those apart): on our
+    // own turn the candidate must have been computed for the position still on the board right
+    // now; on the opponent's turn, exactly one real move (ours) has landed since.
     const std::uint64_t currentGeneration = m_PositionGeneration.load();
     const std::uint64_t expectedGeneration = isOurTurn ? currentGeneration : currentGeneration - 1;
     if (candidate->Generation != expectedGeneration)
         return std::nullopt;
 
-    // On our own turn, the board still shows the position *before* our own move
-    // (ExpectedOwnMove) - so the lookahead (PredictedOpponentMove) is only actually legal
-    // one ply beyond what's displayed. On the opponent's turn, our own move already
-    // happened for real (it's reflected in m_Rules already) - only their predicted reply
-    // is still the missing ply before OurResponse becomes legal.
+    // On our own turn, the board still shows the position *before* our move (ExpectedOwnMove),
+    // so the lookahead (PredictedOpponentMove) is only legal one ply beyond what's displayed. On
+    // the opponent's turn, our move already happened for real (reflected in m_Rules), so only
+    // their predicted reply is still the missing ply before OurResponse becomes legal.
     const std::string& intermediateMove = isOurTurn ? candidate->ExpectedOwnMove : candidate->PredictedOpponentMove;
     const std::string& lookaheadMove = isOurTurn ? candidate->PredictedOpponentMove : candidate->OurResponse;
 
@@ -578,8 +543,7 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     // trusting the string and drawing it straight onto the current board - a pawn move
     // (especially en passant) can otherwise look outright illegal: e.g. PredictedOpponentMove
     // capturing en passant a pawn that only arrives via our own not-yet-played ExpectedOwnMove
-    // double push would draw a pawn "capturing" on a square that's genuinely empty on the
-    // board as displayed right now.
+    // would draw a "capture" on a square that's genuinely empty on the board as displayed now.
     const MoveGenerator::PositionState position{m_Rules.GetBoard(), m_Rules.GetSideToMove(), m_Rules.GetCastlingRights(), m_Rules.GetEnPassantTarget()};
     if (!MoveGenerator::VerifyTwoPlyContinuation(position, intermediateMove, lookaheadMove))
         return std::nullopt;  // shouldn't happen (it's the engine's own PV/our actual last move), but never draw an unverified arrow
@@ -670,12 +634,11 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
     if (m_Tracker.GetSideToMove() != myColor)
     {
         // lastAppliedMove was our own move (side to move just flipped to the opponent) - too
-        // early to check the candidate against the opponent's reply, but this is the one
-        // moment we can validate it's still trustworthy: if we didn't actually play the move
-        // the candidate assumed (ExpectedOwnMove) - e.g. a human overrode the suggestion -
-        // its predicted opponent reply/response no longer describes the real position, so
-        // discard it rather than risk it later matching the opponent's move by coincidence and
-        // firing a response computed for a different position.
+        // early to check the candidate against the opponent's reply, but this is the moment we
+        // can validate it's still trustworthy: if we didn't actually play the move the candidate
+        // assumed (e.g. a human overrode the suggestion), discard it rather than risk it later
+        // matching the opponent's move by coincidence and firing a response computed for a
+        // different position.
         m_Premove.InvalidateIfMismatched(lastAppliedMove);
         return false;
     }
@@ -688,14 +651,11 @@ bool GameSession::TryPremove(const std::string& lastAppliedMove)
     LOG_INFO("Poll: premove hit - opponent played the predicted '{}', immediately playing '{}' without waiting for a fresh search", lastAppliedMove, candidate->OurResponse);
     PlayMoveOnBoard(candidate->OurResponse);
 
-    // No fresh "before" search ran for this move (that's the whole point of a premove hit -
-    // playing instantly rather than waiting one out), so whatever's in
-    // m_PendingBeforeMoveEvalCp is stale, left over from some earlier, unrelated position.
-    // Left alone, it would get incorrectly paired with the next "after" search's eval once
-    // one completes for the position this move just produced - a bogus centipawn-loss/
-    // accuracy score for a move that was never actually evaluated. Clearing both here ensures
-    // this move is skipped by GetAccuracyPercent(), matching its own documented "a Blitz/
-    // premove-skipped position just isn't counted" intent instead of silently violating it.
+    // No fresh "before" search ran for this move (that's the point of a premove hit - playing
+    // instantly rather than waiting one out), so any pending "before" eval is stale, left over
+    // from an earlier, unrelated position. Left alone, it would get incorrectly paired with the
+    // next "after" eval - a bogus accuracy score for a move that was never evaluated. Clearing
+    // both ensures this move is skipped, per GetAccuracyPercent()'s documented intent.
     m_Accuracy.ClearPendingEvals();
 
     return true;
@@ -719,21 +679,18 @@ void GameSession::RequestEngineMove(bool quickVerify)
         limits.Depth = m_SearchDepth;
     }
 
-    // Premoving missed (or never got a prediction to compare against) - still respond fast
-    // rather than waiting out the full configured search. Only ever shortens the search
-    // (min, not an override), so this never slows down an already-fast Blitz/low-Elo setup.
-    // limits.MoveTimeMs is always set by one of the two branches above.
+    // Premoving missed (or never got a prediction) - still respond fast rather than waiting out
+    // the full configured search. Only ever shortens the search (min, not an override), so this
+    // never slows down an already-fast Blitz/low-Elo setup.
     if (quickVerify)
         limits.MoveTimeMs = std::min(*limits.MoveTimeMs, kPremoveVerifyMoveTimeMs);
 
-    // The position is about to change (this request supersedes whatever the last suggestion
-    // was for) - clear it now rather than leaving stale data around until the new result
-    // arrives, which is especially noticeable for the opponent's turn (isOurTurn will be false
-    // in OnEngineBestMove, so it wouldn't otherwise get cleared until our turn again).
+    // The position is about to change - clear the suggestion now rather than leaving stale data
+    // around until the new result arrives (especially noticeable on the opponent's turn, since
+    // OnEngineBestMove wouldn't otherwise clear it until our turn again).
     //
     // m_PremoveCandidate is deliberately NOT cleared here - see its comment in GameSession.h.
-    // TryPremove() owns clearing it (on both a successful/failed match against the opponent's
-    // actual reply, and on detecting our own move didn't match what the candidate assumed).
+    // TryPremove() owns clearing it.
     {
         std::scoped_lock lock(m_SuggestedMoveMutex);
         m_SuggestedMove.reset();
@@ -743,13 +700,11 @@ void GameSession::RequestEngineMove(bool quickVerify)
     m_RequestedForSide = m_Tracker.GetSideToMove();
     m_InitialMoveRequested = true;
 
-    // Opening book: only ever intercepts a request for the tracked player's own turn - a
-    // request made to (informationally) evaluate the opponent's position, or to score the
-    // tracked player's last move for accuracy tracking, always goes to the engine as before,
-    // so neither of those is affected by the book being on. A book hit publishes its move
-    // immediately, the same way OnEngineBestMove publishes an engine result for our own turn
-    // (see QueueAutoplayMove) - the on-board arrow and manual "play now" hotkey both keep
-    // working, and the artificial wait-time delay still applies.
+    // Opening book: only ever intercepts a request for the tracked player's own turn - a request
+    // to evaluate the opponent's position, or to score our last move for accuracy tracking,
+    // always goes to the engine regardless of whether the book is on. A book hit publishes its
+    // move immediately, the same way OnEngineBestMove would (see QueueAutoplayMove), so the
+    // on-board arrow, "play now" hotkey, and artificial delay all keep working.
     const PieceColor myColor = MyColor();
     bool wasBookMove = false;
     if (m_RequestedForSide.load() == myColor && m_OpeningBookEnabled && m_OpeningBook.IsLoaded())
@@ -767,17 +722,13 @@ void GameSession::RequestEngineMove(bool quickVerify)
         }
     }
 
-    // The book move (if any) is already decided and published above - this search doesn't pick
-    // the move, it's purely cosmetic: it's what feeds GetLookaheadMove()/GetAlternateMoves()
-    // (and, as a side effect, accuracy tracking's "before" eval - see OnEngineInfo, which needs
-    // no changes at all for this, since a position's "before" eval doesn't depend on which move
-    // ends up played) with real PV/score data instead of leaving them empty for however long the
-    // position stays in book. OnEngineBestMove checks m_CosmeticSearch and discards this
-    // search's own result rather than letting it overwrite m_SuggestedMove or queue a second,
-    // possibly-different autoplay move - the engine's own top choice here won't always match the
-    // book's (when it doesn't, GetLookaheadMove()'s freshness check against GetSuggestedMove()
-    // already handles that gracefully by just not showing a lookahead arrow, exactly as if the
-    // human had overridden the suggestion).
+    // The book move (if any) is already decided and published above - this search is purely
+    // cosmetic, feeding GetLookaheadMove()/GetAlternateMoves() (and accuracy's "before" eval)
+    // with real PV/score data instead of leaving them empty while the position stays in book.
+    // OnEngineBestMove checks m_CosmeticSearch and discards this search's result rather than
+    // overwriting m_SuggestedMove or queuing a second autoplay move - if the engine's own top
+    // choice doesn't match the book's, GetLookaheadMove()'s freshness check already handles that
+    // gracefully by just not showing a lookahead arrow.
     m_CosmeticSearch = wasBookMove;
 
     LOG_INFO("RequestEngineMove: requesting {}a move for {} after [{}]{}", wasBookMove ? "a cosmetic (book move already decided) " : "", SideName(m_RequestedForSide.load()), JoinStrings(m_Tracker.GetMoves()),
@@ -823,23 +774,18 @@ void GameSession::PlayMoveOnBoard(std::string_view uciMove)
         return;
 
     // Promotion: the drag alone drops the pawn on the back rank, which opens the site's
-    // piece-picker rather than completing the move - needs a follow-up click. Best-effort
-    // (see ChessSiteAdapter::PromotionPickerScript) - if it can't find the right option, the
-    // picker is left open for the user to finish by hand rather than guessing.
+    // piece-picker rather than completing the move - needs a follow-up click. Best-effort: if
+    // it can't find the right option, the picker is left open for the user to finish by hand.
     const char promotionLetter = uciMove[4];
-    // Promotion only happens on the destination's own back rank - rank 8 (uciMove[3] == '8')
-    // is always White promoting, rank 1 always Black, regardless of which side is being
-    // tracked/which way the board is oriented.
+    // Rank 8 (uciMove[3] == '8') is always White promoting, rank 1 always Black, regardless of
+    // which side is tracked or how the board is oriented.
     const char promotingColor = (uciMove[3] == '8') ? 'w' : 'b';
     const std::string promotionScript = ChessSiteAdapter::PromotionPickerScript(promotionLetter, promotingColor);
 
-    // The picker isn't necessarily in the DOM the instant the drag's mouseup fires - some
-    // sites (lichess included) insert it a render pass or two later rather than synchronously
-    // in the drop handler. Retry briefly instead of giving up on the very first empty result,
-    // which was silently leaving every promotion for the user to finish by hand even when the
-    // picker script itself was perfectly capable of finding it a moment later. A genuine CDP/
-    // JS failure (as opposed to "ran fine, nothing there yet") still fails fast below rather
-    // than retrying pointlessly.
+    // The picker isn't necessarily in the DOM the instant the drag's mouseup fires - some sites
+    // (lichess included) insert it a render pass or two later. Retry briefly instead of giving
+    // up on the first empty result. A genuine CDP/JS failure (vs. "ran fine, nothing there yet")
+    // still fails fast below rather than retrying pointlessly.
     std::optional<SquarePoint> target;
     for (int attempt = 0; attempt < 10 && !target; ++attempt)
     {

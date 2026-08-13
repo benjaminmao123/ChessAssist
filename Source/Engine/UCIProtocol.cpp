@@ -61,7 +61,7 @@ std::optional<SearchInfo> ParseInfoLine(std::string_view line)
 
     std::istringstream stream{std::string(line)};
     std::string token;
-    stream >> token;  // consume "info"
+    stream >> token;
 
     SearchInfo info;
     bool sawSearchField = false;
@@ -116,8 +116,8 @@ std::optional<SearchInfo> ParseInfoLine(std::string_view line)
             while (stream >> move)
                 info.Pv.push_back(move);
         }
-        // Other fields (hashfull, tbhits, currmove, currmovenumber, string, ...) are
-        // intentionally ignored - not needed for best-move extraction.
+        // Other fields (hashfull, tbhits, currmove, currmovenumber, string, ...) are ignored -
+        // not needed for best-move extraction.
     }
 
     if (!sawSearchField)
@@ -133,7 +133,7 @@ std::optional<BestMoveResult> ParseBestMoveLine(std::string_view line)
 
     std::istringstream stream{std::string(line)};
     std::string token;
-    stream >> token;  // consume "bestmove"
+    stream >> token;
 
     BestMoveResult result;
     if (!(stream >> result.BestMove))

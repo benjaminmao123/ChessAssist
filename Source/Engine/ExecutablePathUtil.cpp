@@ -37,8 +37,8 @@ constexpr const wchar_t* kStockfishExeName = L"stockfish.exe";
 #elif defined(__APPLE__)
 std::filesystem::path GetCurrentExecutablePath()
 {
-    // macOS has no /proc, so the executable's own path has to come from dyld directly - the
-    // first call (null buffer) reports the required size, then the second call fills it.
+    // macOS has no /proc; the first dyld call (null buffer) reports the required size, the
+    // second fills it.
     std::uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
 

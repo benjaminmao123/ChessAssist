@@ -17,10 +17,8 @@ bool OnBoard(int file, int rank)
     return file >= 0 && file < 8 && rank >= 0 && rank < 8;
 }
 
-// Simulates move on a scratch copy of position.Board and checks that it doesn't leave the
-// mover's own king attacked - the same "copy, apply, check king safety" pattern
-// ChessRules::ApplySanMove's pin tie-break already uses (see its comment), generalized here to
-// every candidate move rather than only genuinely SAN-ambiguous ones.
+// Simulates move on a scratch copy of position.Board and checks it doesn't leave the mover's
+// own king attacked.
 bool LeavesOwnKingSafe(const PositionState& position, const LegalMove& move)
 {
     BoardState scratch = position.Board;
@@ -167,11 +165,9 @@ void AddPieceMoves(const PositionState& position, PieceType type, int from, std:
     }
 }
 
-// Genuinely new legality logic (not reused from ChessRules - see MoveGenerator.h's class
-// comment): rights, empty-path occupancy, and that the king's current, transit, and
-// destination squares are all unattacked. Queenside castling only requires the transit/
-// destination squares (c/d-file) to be unattacked, not the whole empty path (b-file doesn't
-// need to be safe), matching standard chess rules.
+// Checks rights, empty-path occupancy, and that the king's current, transit, and destination
+// squares are unattacked. Queenside castling only requires the transit/destination squares
+// (c/d-file) unattacked, not the whole empty path - the b-file doesn't need to be safe.
 void AddCastlingMoves(const PositionState& position, std::vector<LegalMove>& out)
 {
     const PieceColor color = position.SideToMove;

@@ -29,13 +29,12 @@ struct Piece
     bool operator==(const Piece&) const = default;
 };
 
-// Canonical indexing: file 0..7 = a..h, rank 0..7 = rank1..rank8, index = rank * 8 + file -
-// independent of how the board is visually oriented on screen.
+// Canonical indexing: file 0..7 = a..h, rank 0..7 = rank1..rank8, index = rank * 8 + file,
+// independent of screen orientation.
 using BoardState = std::array<std::optional<Piece>, 64>;
 
-// Which castling moves are still legally available to each side - independent of whether one
-// is possible *right now* (king in check, path blocked/attacked, etc.), same "rights" vs.
-// "legality" distinction FEN's own castling field draws. See ChessRules::GetCastlingRights().
+// Castling "rights" (per FEN's castling field), not current legality - king may still be in
+// check or the path blocked. See ChessRules::GetCastlingRights().
 struct CastlingRights
 {
     bool WhiteKingside = true;

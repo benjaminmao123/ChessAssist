@@ -45,8 +45,8 @@ void EngineController::Shutdown()
     {
         m_Client->SendQuit();
 
-        // Give the engine a brief window to exit on its own - its stdout pipe closing is
-        // what unblocks the reader thread's blocking read - before forcing it.
+        // Brief window for the engine to exit on its own - its stdout pipe closing is what
+        // unblocks the reader thread's blocking read - before forcing termination.
         for (int i = 0; i < 50 && m_Client->IsRunning(); ++i)
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
@@ -86,12 +86,9 @@ std::future<std::expected<BestMoveResult, EngineError>> EngineController::FindBe
 
     const std::uint64_t requestId = ++m_RequestGeneration;
 
-    // Serializes concurrent callers: a second call blocks here until the in-flight
-    // search's bestmove line arrives and HandleBestMoveLine clears the flag below. If a
-    // search is already running, stop it immediately rather than waiting out its full
-    // movetime - this request already supersedes it (see m_RequestGeneration), so there's
-    // no reason to block the caller (GameSession calls this synchronously from the poll
-    // loop) for however long was left of the old search's time budget.
+    // Serializes concurrent callers: blocks until any in-flight search's bestmove arrives and
+    // clears m_SearchInProgress below. A running search is stopped immediately rather than
+    // waited out, since this request already supersedes it (see m_RequestGeneration).
     std::unique_lock<std::mutex> searchLock(m_SearchMutex);
     if (m_SearchInProgress)
     {
@@ -160,8 +157,7 @@ void EngineController::ReaderThreadLoop()
 
 void EngineController::HandleInfoLine(std::string_view line)
 {
-    // Discard info from a search that's already been superseded - see the member comment on
-    // m_ActiveSearchRequestId for why this can't be checked from the line's own content.
+    // Discard info from a superseded search - see m_ActiveSearchRequestId's comment.
     if (m_ActiveSearchRequestId.load() != m_RequestGeneration.load())
         return;
 
@@ -206,9 +202,8 @@ void EngineController::HandleBestMoveLine(std::string_view line)
     }
     m_SearchCv.notify_one();
 
-    // A newer request may have already superseded this one (see m_RequestGeneration's
-    // comment in the header) - if so, this result is for a position that's no longer
-    // current, so it must not reach the UI even though it's a perfectly valid engine result.
+    // A newer request may have already superseded this one (see m_RequestGeneration) - if so,
+    // this result is stale and must not reach the UI.
     const bool isStale = pendingRequestId != m_RequestGeneration.load();
 
     if (result && !isStale)

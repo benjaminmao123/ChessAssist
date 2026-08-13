@@ -1,9 +1,8 @@
 #pragma once
 
-// Every log call in the codebase goes through these macros instead of calling spdlog
-// directly, so the concrete logging backend is swappable in one place (this header) rather
-// than at every call site. LogPanel/ImGuiLogSink's spdlog sink registration in main.cpp is
-// backend-wiring, not a call site, so it's left talking to spdlog directly.
+// All logging goes through these macros instead of calling spdlog directly, so the backend
+// stays swappable in one place. Sink registration (LogPanel/ImGuiLogSink) is backend-wiring,
+// not a call site, so it talks to spdlog directly.
 #include <spdlog/spdlog.h>
 
 #define LOG_TRACE(...) spdlog::trace(__VA_ARGS__)

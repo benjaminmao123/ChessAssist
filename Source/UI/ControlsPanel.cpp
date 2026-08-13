@@ -55,15 +55,14 @@ void ControlsPanel::RestartEngine(std::string_view enginePath)
 
     LOG_INFO("Engine started from {}", path ? path->string() : "bundled default (" + ExecutablePathUtil::GetDefaultStockfishPath().string() + ")");
 
-    // A freshly spawned engine process starts with every UCI option at its default (i.e.
-    // unlimited strength) - reapply whatever Elo target is currently configured so a restart
-    // doesn't silently drop it.
+    // A freshly spawned engine process starts with every UCI option at its default (unlimited
+    // strength) - reapply whatever Elo target is currently configured so a restart doesn't
+    // silently drop it.
     ApplyEloTarget();
 
-    // Asks the engine to compute GameSession::kMultiPvLines candidate lines instead of just
-    // the best one, feeding GameSession::GetAlternateMoves() - same "options reset on every
-    // fresh process" reasoning as ApplyEloTarget() above. Only the live engine needs this; the
-    // sandbox's own dedicated EngineController (see App) is unrelated to this one.
+    // Asks the engine to compute GameSession::kMultiPvLines candidate lines instead of just the
+    // best one, feeding GameSession::GetAlternateMoves() - same "options reset on every fresh
+    // process" reasoning as ApplyEloTarget() above.
     GameSession::ConfigureMultiPv(*m_Controller);
 }
 
@@ -103,9 +102,9 @@ void ControlsPanel::LoadSettings()
 
         m_SelectedSite = static_cast<ChessSite>(std::clamp(ini.Get<int>("Connection", "Site", static_cast<int>(m_SelectedSite)), 0, IM_ARRAYSIZE(kSiteNames) - 1));
 
-        // Get<T>'s default-value parameter is T&& with T explicitly fixed (not deduced) by the
-        // <T> below, so it binds only to rvalues - static_cast produces one from each lvalue
-        // member (plain `m_LimitElo` etc. wouldn't compile).
+        // Get<T>'s default-value parameter is T&& with T fixed (not deduced), so it binds only
+        // to rvalues - static_cast produces one from each lvalue member (plain `m_LimitElo`
+        // wouldn't compile).
         m_LimitElo = ini.Get<bool>("Strength", "LimitElo", static_cast<bool>(m_LimitElo));
         m_Elo = std::clamp(ini.Get<int>("Strength", "Elo", static_cast<int>(m_Elo)), GameSession::kMinElo, GameSession::kMaxElo);
         m_BlitzMode = ini.Get<bool>("Strength", "BlitzMode", static_cast<bool>(m_BlitzMode));
@@ -131,12 +130,10 @@ void ControlsPanel::LoadSettings()
     }
 
     // Mirror every loaded value into GameSession, the same way each widget's own on-change
-    // handler would in Draw() - the Elo/BlitzMode/EngineController half of this (UCI_Elo etc.)
-    // is deliberately NOT done here: the engine hasn't started yet at construction time (see
-    // ApplyEloTarget's SetOption no-op comment), so App's startup RestartEngine() call, which
-    // ends with its own ApplyEloTarget(), covers that once the engine actually exists. Loading
-    // the book, unlike starting the engine, is pure file parsing with no process dependency,
-    // so (unlike Elo) it can happen right here rather than waiting for RestartEngine().
+    // handler would in Draw(). The Elo/EngineController half (UCI_Elo etc.) is deliberately NOT
+    // done here since the engine hasn't started yet - App's startup RestartEngine() call covers
+    // that via its own ApplyEloTarget(). Loading the book is pure file parsing with no process
+    // dependency, so it can happen right here instead.
     m_GameSession->SetBlitzMode(m_BlitzMode);
     m_GameSession->SetAutoplayEnabled(m_AutoplayEnabled);
     m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
@@ -155,10 +152,8 @@ void ControlsPanel::SaveSettings() const
 
     // Read-merge rather than starting from a blank INIReader: INIWriter::write() always writes
     // out exactly (and only) what's in the INIReader object it's given, so starting blank would
-    // silently erase BoardStatePanel::SaveSettings()'s "Display" section in this same file -
-    // this class only ever touches its own sections, on top of whatever's already there.
-    // BoardStatePanel::SaveSettings() does the identical read-merge for the same reason, in the
-    // other direction.
+    // silently erase BoardStatePanel::SaveSettings()'s "Display" section in this same file.
+    // BoardStatePanel::SaveSettings() does the identical read-merge in the other direction.
     inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "SaveSettings");
 
     SettingsIni::UpsertEntry(ini, "Engine", "Path", std::string(m_EngineExecutablePathBuffer.data()));
@@ -278,11 +273,10 @@ void ControlsPanel::Draw()
     {
         ImGui::TextWrapped("Log in and open a game in the Chess Assist browser window, then click Connect.");
 
-        // A valid, in-sync session has nothing for another Connect click to do - and clicking
-        // it anyway tears down the live CDP connection out from under any in-flight Poll(),
-        // which is exactly what was surfacing as "CDP connection lost while waiting for
-        // response". Re-connecting is only meaningful to establish a session or to resync
-        // after a desync, so that's the only time the button's live.
+        // A valid, in-sync session has nothing for another Connect click to do - clicking it
+        // anyway tears down the live CDP connection out from under any in-flight Poll(), which
+        // was surfacing as "CDP connection lost while waiting for response". Only live when it's
+        // meaningful: establishing a session, or resyncing after a desync.
         ImGui::BeginDisabled(m_GameSession->IsConnected() && !m_GameSession->HasDesynced());
         if (ImGui::Button("Connect"))
         {

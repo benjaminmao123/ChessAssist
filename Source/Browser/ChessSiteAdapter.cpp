@@ -4,12 +4,10 @@
 
 namespace
 {
-// Content-based extraction: find the DOM subtree containing the most text nodes shaped like
-// SAN move tokens, and read the move list from there - see ChessSiteAdapter.h for why this
-// avoids depending on any specific container selector. That heuristic alone can't tell "zero
-// moves played yet" apart from "no game open" - both look like zero SAN-shaped text anywhere
-// - so it falls back to isGameOpen()'s board-presence check to distinguish them. Returns null
-// only when neither finds anything.
+// Content-based extraction: find the DOM subtree with the most SAN-shaped text nodes and
+// read the move list from there (see ChessSiteAdapter.h for why). That heuristic can't tell
+// "zero moves played" from "no game open" - both show zero SAN text - so it falls back to
+// isGameOpen()'s board-presence check to distinguish them.
 constexpr const char* kExtractionScript = R"JS(
 (() => {
     const sanPattern = /^(O-O-O|O-O|0-0-0|0-0|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](=[QRBN])?[+#]?)$/;
@@ -101,12 +99,10 @@ constexpr const char* kExtractionScript = R"JS(
 })()
 )JS";
 
-// Same board-finding heuristic feeds both SquareCenterScript and, indirectly, orientation
-// detection above: lichess's board layer is the <cg-board> custom element inside chessground's
-// wrapper, chess.com's live board is the <wc-chess-board> custom element - both are exactly
-// the 8x8 grid's own bounding box (no extra border/padding to subtract), and both are custom
-// element tag names, which - per ExtractionScript's comment above on <vertical-move-list> -
-// tend to survive site redesigns better than a styling class name would.
+// Same board-finding heuristic feeds SquareCenterScript and orientation detection above:
+// lichess's <cg-board> and chess.com's <wc-chess-board> are each exactly the 8x8 grid's own
+// bounding box, and both are custom element tags, which survive site redesigns better than a
+// styling class name would.
 constexpr const char* kBoardElementScript = R"JS(
     let boardEl = null;
     for (const sel of ['wc-chess-board', 'cg-board', '.board']) {
@@ -210,8 +206,7 @@ std::string ReplaceAll(std::string text, std::string_view token, std::string_vie
 }
 
 // Shared parse/catch boilerplate behind every ParseXxx() below - nullopt on any malformed/
-// unparsable JSON text, same as each of them already documents for its own jsonResult
-// parameter.
+// unparsable JSON text.
 std::optional<nlohmann::json> TryParseJson(std::string_view jsonText)
 {
     try

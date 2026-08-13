@@ -7,13 +7,10 @@
 #include <mutex>
 #include <string_view>
 
-// In-app log view. AddLine() is called from whatever thread logs (via ImGuiLogSink, see
-// ImGuiLogSink.h) and is safe to call from any thread; Draw() renders it each frame from the
-// UI thread only. Both are internally synchronized against each other - Draw() holds the
-// lock for its whole body rather than copying the buffer out first, since the buffer is
-// capped (see kMaxLines) rather than truly unbounded, so a full per-frame copy would still be
-// the more expensive option. The full session log always remains available in the on-disk
-// log file (see main.cpp) regardless of what's been trimmed from this in-app view.
+// In-app log view. AddLine() (via ImGuiLogSink) is safe to call from any thread; Draw() renders
+// it each frame from the UI thread only. Both are synchronized via the same mutex - Draw() holds
+// the lock for its whole body rather than copying the buffer out first, since the buffer is
+// capped (see kMaxLines), so a full per-frame copy would still be the more expensive option.
 class LogPanel
 {
 public:
@@ -22,11 +19,10 @@ public:
     void Draw();
 
 private:
-    // Draw() walks every retained line each frame (word-wrapped lines rule out
-    // ImGuiListClipper's fixed-row-height fast path - see Draw()), so an uncapped buffer
-    // would make per-frame cost, and memory use, grow for as long as the app stays open.
-    // Trimmed in batches (down to kMaxLines once past kTrimThreshold) so compaction stays a
-    // rare O(n) operation rather than happening on every single AddLine call.
+    // Draw() walks every retained line each frame (word-wrapped lines rule out ImGuiListClipper's
+    // fixed-row-height fast path), so an uncapped buffer would make per-frame cost grow forever.
+    // Trimmed in batches (down to kMaxLines once past kTrimThreshold) so compaction stays a rare
+    // O(n) operation rather than happening on every AddLine call.
     static constexpr int kMaxLines = 5000;
     static constexpr int kTrimThreshold = kMaxLines + 1000;
 
@@ -40,10 +36,8 @@ private:
     bool m_AutoScroll = true;
     bool m_Selectable = false;
 
-    // Consumed by Draw()'s Selectable branch (InputTextMultiline doesn't auto-follow new
-    // content the way the normal clipped view does) - starts true so the very first draw in
-    // Selectable mode opens at the latest message rather than the top, and is re-armed by
-    // AddLine() while Auto-scroll is checked so it keeps following new lines the same way the
-    // normal view does.
+    // Consumed by Draw()'s Selectable branch (InputTextMultiline doesn't auto-follow new content
+    // the way the normal clipped view does) - starts true so the first draw opens at the latest
+    // message, and is re-armed by AddLine() while Auto-scroll is checked.
     bool m_ScrollSelectableToBottomPending = true;
 };

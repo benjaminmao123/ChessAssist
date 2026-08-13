@@ -6,8 +6,8 @@
 namespace
 {
 // The same exponential-decay curve chess.com's own accuracy metric is built on: centipawn
-// loss -> a 0-100 per-move score. Clamped since the raw formula can slightly exceed 100 at
-// (near-)zero loss and go negative for very large losses.
+// loss -> a 0-100 per-move score. Clamped because the raw formula can slightly exceed 100 at
+// near-zero loss and go negative for large losses.
 float ScoreLossToAccuracyPercent(float centipawnLoss)
 {
     const float accuracy = 103.1668f * std::exp(-0.04354f * centipawnLoss) - 3.1669f;

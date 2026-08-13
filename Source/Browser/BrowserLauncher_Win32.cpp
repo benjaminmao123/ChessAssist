@@ -97,9 +97,8 @@ std::expected<void, BrowserError> BrowserLauncher::Launch(std::uint16_t port, co
     commandLine += L" --remote-debugging-port=" + std::to_wstring(port);
     commandLine += L" --user-data-dir=\"" + profileDir.wstring() + L"\"";
     commandLine += L" --no-first-run --no-default-browser-check";
-    // Without this, Chrome's DevTools anti-DNS-rebinding check rejects the WebSocket
-    // upgrade from any client that isn't itself a browser tab (HTTP 403 on the handshake) -
-    // this flag explicitly allows a non-browser CDP client like this one to connect.
+    // Without this, Chrome's DevTools anti-DNS-rebinding check rejects the WebSocket upgrade
+    // from any non-browser client with HTTP 403 - needed for a CDP client like this one to connect.
     commandLine += L" --remote-allow-origins=*";
     if (!startUrl.empty())
         commandLine += L" " + std::wstring(startUrl.begin(), startUrl.end());

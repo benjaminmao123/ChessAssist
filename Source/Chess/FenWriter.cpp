@@ -26,10 +26,8 @@ std::optional<PieceType> PieceTypeFromFenLetter(char letter)
     }
 }
 
-// Splits text on every occurrence of separator, discarding empty pieces - std::string_view::
-// substr-based so no copies beyond the returned views themselves. Shared by the fields-on-
-// spaces split (FEN's own top-level field separator) and the ranks-on-slashes split (piece
-// placement's own internal separator).
+// Splits text on every occurrence of separator, discarding empty pieces. Shared by the
+// fields-on-spaces split and the ranks-on-slashes split.
 std::vector<std::string_view> Split(std::string_view text, char separator)
 {
     std::vector<std::string_view> parts;
@@ -48,8 +46,7 @@ std::vector<std::string_view> Split(std::string_view text, char separator)
 }
 
 // Fills board from FEN's piece-placement field (ranks 8 down to 1, separated by '/', each rank
-// a mix of digits - consecutive empty squares - and piece letters). Returns nullopt if it
-// doesn't resolve to exactly 8 ranks of exactly 8 files each, or contains an invalid character.
+// a mix of digits for empty squares and piece letters). Returns nullopt on malformed input.
 std::optional<BoardState> ParsePiecePlacement(std::string_view placement)
 {
     const std::vector<std::string_view> ranks = Split(placement, '/');
@@ -86,9 +83,7 @@ std::optional<BoardState> ParsePiecePlacement(std::string_view placement)
 }
 
 // True if color has exactly one king on board - a syntactically valid FEN can still describe
-// an unanalyzable position (zero or multiple kings for a side), which MoveGenerator's check-
-// safety filtering silently tolerates in ways that would just look broken to the user rather
-// than erroring cleanly, so ParseFen rejects it upfront instead.
+// an unanalyzable position, so ParseFen rejects that upfront instead of failing silently later.
 bool HasExactlyOneKing(const BoardState& board, PieceColor color)
 {
     int count = 0;
@@ -233,8 +228,7 @@ std::optional<MoveGenerator::PositionState> ParseFen(std::string_view fen)
         enPassantTarget = SquareIndex(fields[3][0] - 'a', fields[3][1] - '1');
     }
 
-    // Fields[4]/[5] (halfmove clock/fullmove number), if present, are accepted but ignored -
-    // see this function's header comment.
+    // Fields[4]/[5] (halfmove clock/fullmove number), if present, are accepted but ignored.
 
     if (!HasExactlyOneKing(*board, PieceColor::White) || !HasExactlyOneKing(*board, PieceColor::Black))
         return std::nullopt;

@@ -11,10 +11,8 @@
 #include <utility>
 #include <vector>
 
-// Layout/color constants shared by every board this app draws (the live board, the
-// free-standing analysis board) - declared here (not private to one panel's .cpp) so both read
-// consistently. Plain constexpr at header scope gets each including TU its own internal-linkage
-// copy - the standard, ODR-safe way to share compile-time constants via a header.
+// Layout/color constants shared by every board this app draws - declared here (not private to
+// one panel's .cpp) so both read consistently.
 constexpr float kChessBoardEvalBarWidth = 28.0f;
 constexpr float kChessBoardEvalBarGap = 12.0f;
 constexpr float kChessBoardMinSquareSize = 20.0f;
@@ -33,11 +31,9 @@ constexpr ImU32 kChessBoardLegalDestinationColor = IM_COL32(0x00, 0x00, 0x00, 14
 constexpr ImU32 kChessBoardAnnotationArrowColor = IM_COL32(0x15, 0x78, 0x1B, 215);
 
 // One color per alternate candidate move (see GameSession::GetAlternateMoves()), in order -
-// deliberately distinct from the primary (orange/red) and lookahead (blue) arrow colors, and
-// deliberately much more transparent than the primary arrow's alpha 220 - low enough that the
-// primary (best) move still reads as the obvious, solid one at a glance, with each further
-// alternate fading a bit more to reinforce "less preferred than the last." Alternates beyond
-// the array's length reuse its last entry rather than indexing out of bounds.
+// distinct from the primary (orange/red) and lookahead (blue) arrows, and much more transparent
+// than the primary arrow's alpha 220 so the best move still reads as the obvious one, with each
+// further alternate fading more. Alternates beyond the array's length reuse its last entry.
 constexpr ImU32 kChessBoardAlternateArrowColors[] = {
     IM_COL32(0xC9, 0xA8, 0x00, 130),  // 2nd choice - gold
     IM_COL32(0x9C, 0x27, 0xB0, 100),  // 3rd choice - purple
@@ -71,35 +67,30 @@ struct ChessBoardSuggestedSquares
 // move as "drag the piece from here to here".
 void ChessBoardDrawArrow(ImDrawList* drawList, ImVec2 from, ImVec2 to, ImU32 color, float thickness);
 
-// Vertical two-tone bar. Whichever color renders at the bottom of the board (see
-// blackAtBottom) also fills from the bottom of the bar here, matching the usual lichess/
-// chess.com convention of the bar mirroring the board's own orientation. whiteFraction
-// nullopt (no search info yet) draws an even split.
+// Vertical two-tone bar. Whichever color renders at the bottom of the board (see blackAtBottom)
+// also fills from the bottom of the bar, matching the lichess/chess.com convention of the bar
+// mirroring the board's orientation. whiteFraction nullopt (no search info yet) draws an even
+// split.
 void ChessBoardDrawEvalBar(ImDrawList* drawList, ImVec2 barMin, ImVec2 barMax, std::optional<float> whiteFraction, bool blackAtBottom);
 
 // Everything needed to render one interactive chessboard - piece/board texture drawing,
 // coordinate labels, drag/click-to-move interaction, right-click-drag planning-arrow
 // annotations, and the promotion-choice popup. One instance is owned by *each* panel that draws
-// a board (BoardStatePanel, AnalysisBoardPanel) - interaction state is correctly per-board (you
-// shouldn't be able to pick up a piece on one board and drop it on the other); only the GL
-// textures themselves are actually shared, via the separate ChessPieceTextures each panel also
-// takes a reference to. Drives whichever IPlayableBoard the owning panel gives it (SandboxSession
-// for the live board, AnalysisBoardSession for the free-standing one) without depending on
-// either concretely.
+// a board (BoardStatePanel, AnalysisBoardPanel), so interaction state is correctly per-board -
+// only the GL textures are actually shared, via ChessPieceTextures. Drives whichever
+// IPlayableBoard the owning panel gives it, without depending on it concretely.
 class ChessBoardWidget
 {
 public:
     // Updates drag/click-to-move state and the right-click-drag annotation-arrow tool from this
     // frame's mouse input. Pure input handling, no rendering (see the Draw* methods below).
-    // Callers must only call this while interaction is actually enabled - suppressed while a
-    // promotion popup is open, so a click behind the popup can't also start picking up a new
-    // piece (see BoardStatePanel::Draw()'s interactionEnabled for the existing pattern).
+    // Callers must suppress this while a promotion popup is open, so a click behind the popup
+    // can't also start picking up a new piece.
     void UpdateInteraction(IPlayableBoard& board, std::optional<int> squareUnderMouse, bool windowHovered);
 
-    // Board background (texture, or a plain drawn checkerboard fallback if it failed to load)
-    // plus file/rank coordinate labels, the piece-drawing loop (skipping whichever square is
-    // currently being dragged), and the dragged piece redrawn centered on mousePos - always
-    // needed together, so consolidated into one call.
+    // Board background (texture, or a checkerboard fallback if it failed to load) plus
+    // coordinate labels, the piece-drawing loop (skipping the dragged square), and the dragged
+    // piece redrawn centered on mousePos - always needed together, so consolidated into one call.
     void DrawBoardAndPieces(ImDrawList* drawList, const ChessPieceTextures& textures, const BoardState& board, bool blackAtBottom, ImVec2 boardOrigin, ImVec2 boardEnd, float squareSize, ImVec2 mousePos) const;
 
     // The picked-up square highlight and lichess-style destination dot/ring markers for the
@@ -115,11 +106,9 @@ public:
     // piece-texture buttons. A no-op while nothing is pending.
     void DrawPromotionPopup(IPlayableBoard& board, const ChessPieceTextures& textures, bool blackAtBottom, ImVec2 boardOrigin, float squareSize);
 
-    // Drops any annotation arrows and clears the drag/promotion state the moment the drawn
-    // board itself changes to something other than lastSeenBoard (a move played, an undo/
-    // reset/resync) - annotations are meant as a transient "let me visualize this" aid, not a
-    // permanent record. Callers should pass the board they're about to draw each frame; this
-    // updates its own internally-tracked "last seen" copy.
+    // Drops any annotation arrows the moment the drawn board changes from lastSeenBoard (a move
+    // played, an undo/reset/resync) - annotations are a transient "let me visualize this" aid,
+    // not a permanent record. Callers should pass the board they're about to draw each frame.
     void ClearAnnotationsIfBoardChanged(const BoardState& board);
 
 private:

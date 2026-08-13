@@ -16,13 +16,10 @@ int WhitePerspectiveSign(PieceColor requestedSide)
 }
 
 // A signed, side-to-move-perspective magnitude for a mate score, suitable for multiplying by
-// WhitePerspectiveSign() to get a White-perspective value. "mate 0" isn't the side to move
-// delivering mate in zero of their own moves (not a coherent state) - it's the engine
-// reporting that this position already IS checkmate against the side to move, the worst
-// possible outcome for them, not the best. That matters here specifically because
-// multiplying the *raw* mate value by sign (as if it were an ordinary signed score) loses all
-// sign information at exactly mate 0 (anything times zero is zero) - so "White checkmated"
-// and "Black checkmated" would otherwise become indistinguishable right when it matters most.
+// WhitePerspectiveSign() to get a White-perspective value. "mate 0" means the side to move is
+// already checkmated - the worst outcome for them, not the best - so multiplying the *raw* mate
+// value by sign would lose all sign information at exactly 0, making "White checkmated" and
+// "Black checkmated" indistinguishable. Offsetting by kMateEquivalentCp avoids that.
 float SideToMoveMateMagnitude(int mate)
 {
     constexpr float kMateEquivalentCp = 10000.0f;
@@ -33,12 +30,10 @@ float SideToMoveMateMagnitude(int mate)
 void EngineInfoPanel::UpdateInfo(const SearchInfo& info, PieceColor requestedSide)
 {
     // With MultiPV > 1 (see GameSession::kMultiPvLines), Stockfish emits one info line per
-    // requested line per depth (multipv 1, 2, 3, ...), each overwriting the last if not
-    // filtered - without this, the depth/score/PV text here would flicker to whichever
-    // (possibly much weaker) line happened to arrive most recently instead of always tracking
-    // the engine's actual best line. The alternate lines themselves are read directly off
-    // SearchInfo by whichever caller wants them (see GameSession::GetAlternateMoves()), not
-    // through this display-only class.
+    // requested line per depth (multipv 1, 2, 3, ...) - without this filter, the depth/score/PV
+    // text here would flicker to whichever (possibly weaker) line arrived most recently instead
+    // of always tracking the engine's best line. Alternate lines are read directly off SearchInfo
+    // elsewhere (see GameSession::GetAlternateMoves()), not through this display-only class.
     if (info.MultiPvIndex != 1)
         return;
 
@@ -73,11 +68,10 @@ void EngineInfoPanel::DrawContents()
 
         if (info->ScoreMate)
         {
-            // A raw signed "mate in -3" reads like an error (a move count can't be negative) -
-            // unlike the cp score, where a plain signed decimal is normal, name the mating
-            // side explicitly instead of leaning on the sign-convention. Sign resolved via
-            // SideToMoveMateMagnitude, not the raw mate value directly - see its comment on
-            // why mate 0 needs that (sign * 0 is always 0, whoever's mated).
+            // A raw signed "mate in -3" reads like an error (a move count can't be negative), so
+            // name the mating side explicitly instead of leaning on the sign convention. Sign is
+            // resolved via SideToMoveMateMagnitude, not the raw mate value - see its comment on
+            // why mate 0 needs that.
             const int mateDistance = std::abs(*info->ScoreMate);
             if (static_cast<float>(sign) * SideToMoveMateMagnitude(*info->ScoreMate) >= 0.0f)
                 ImGui::Text("Score: White mates in %d", mateDistance);

@@ -8,9 +8,8 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
-// DockBuilder (SetupDefaultDockLayout) is part of Dear ImGui's internal API - stable enough
-// in practice for this narrow, standard use (build a default layout once at startup), but
-// unlike the rest of this file, changes between ImGui versions aren't guaranteed compatible.
+// DockBuilder (SetupDefaultDockLayout) is part of ImGui's internal API - stable enough for
+// this narrow use, but not guaranteed compatible across ImGui versions like the rest of this file.
 #include <imgui_internal.h>
 
 #include <ctime>
@@ -74,26 +73,22 @@ int App::Run()
     // both m_BoardStatePanel and m_AnalysisBoardPanel.
     m_PieceTextures.LoadTextures();
 
-    // Checked once, right after Init() (which points ImGui's own io.IniFilename at this same
-    // path - see its comment) but before the first frame actually loads it - a saved imgui.ini
-    // from a previous session means the user already arranged windows the way they want, so
-    // SetupDefaultDockLayout() below must NOT stomp it.
+    // Checked once, right after Init() (which points ImGui's io.IniFilename at this path) but
+    // before the first frame loads it - if a saved imgui.ini exists, SetupDefaultDockLayout()
+    // below must NOT stomp the user's own arrangement.
     const bool hasSavedLayout = std::filesystem::exists(ExecutablePathUtil::GetImGuiIniFilePath());
 
-    // UCI "score" is relative to whichever side the search is analyzing for, not to White -
-    // GameSession::GetRequestedSide() (safe from any thread, see its comment) lets the panel
-    // flip the sign into the conventional "positive = good for White" display. Also fans out
-    // to GameSession's premove detection (see GameSession::OnEngineInfo) - EngineController
-    // supports only one OnInfo subscriber, same reason OnBestMove fans out below.
+    // UCI score is relative to the analyzing side, not White - GetRequestedSide() lets the
+    // panel flip the sign for the conventional display. Also fans out to GameSession's premove
+    // detection, since EngineController only supports one OnInfo subscriber.
     m_Controller.SetOnInfo([this](const SearchInfo& info) {
         m_EnginePanel.UpdateInfo(info, m_GameSession.GetRequestedSide());
         m_GameSession.OnEngineInfo(info);
     });
 
-    // EngineController supports only one OnBestMove subscriber, so this callback fans the
-    // result out to both: the panel display, and GameSession's autoplay handling (a no-op
-    // there unless autoplay is enabled and the result is for the tracked player's own turn -
-    // see GameSession::OnEngineBestMove).
+    // EngineController supports only one OnBestMove subscriber, so this fans the result out to
+    // both the panel display and GameSession's autoplay handling (a no-op unless autoplay is
+    // enabled and it's the tracked player's turn).
     m_Controller.SetOnBestMove([this](const BestMoveResult& result) {
         m_EnginePanel.UpdateBestMove(result);
         m_GameSession.OnEngineBestMove(result);
@@ -129,12 +124,10 @@ int App::Run()
     else
         GameSession::ConfigureMultiPv(m_AnalysisController);
 
-    // Fires the analysis board's first real search request - m_AnalysisSession was constructed
-    // (in App's own constructor) well before the engine process above existed, so it
-    // deliberately skipped requesting analysis for its initial position itself (see
-    // AnalysisBoardSession's constructor comment). Reset() is a convenient "re-analyze the
-    // current (still-starting) position now that the engine actually exists" - it's a no-op on
-    // the empty history that's already there.
+    // Fires the analysis board's first real search - m_AnalysisSession was constructed before
+    // the engine process existed, so it skipped requesting analysis initially (see
+    // AnalysisBoardSession's constructor). Reset() re-analyzes the current position now that
+    // the engine exists; it's a no-op on the already-empty history.
     m_AnalysisSession.Reset();
 
     m_AnalysisController.SetOnInfo([this](const SearchInfo& info) {
@@ -220,9 +213,8 @@ void App::SetupDefaultDockLayout(unsigned int dockspaceId)
     ImGui::DockBuilderAddNode(id, static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_DockSpace) | ImGuiDockNodeFlags_PassthruCentralNode);
     ImGui::DockBuilderSetNodeSize(id, ImGui::GetMainViewport()->Size);
 
-    // Controls (settings, buttons - small/fixed content) gets a narrow left column; Tracked
-    // Board (the primary content - board, eval bar, engine info) gets the large remaining
-    // area; Log (diagnostic, rarely needs to be as tall as the board) gets a strip under it.
+    // Controls (small/fixed content) gets a narrow left column; the board (primary content)
+    // gets the large remaining area; Log (rarely needs much height) gets a strip under it.
     ImGuiID leftId = 0;
     ImGuiID rightId = 0;
     ImGui::DockBuilderSplitNode(id, ImGuiDir_Left, 0.22f, &leftId, &rightId);

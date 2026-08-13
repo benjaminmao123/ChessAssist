@@ -22,8 +22,8 @@ std::expected<void, EngineError> UCIClient::PerformHandshake()
         if (*line == "uciok")
             return {};
 
-        // "id name/author ..." and "option ..." lines are intentionally skipped -
-        // no engine option configuration is exposed by this layer yet.
+        // "id name/author ..." and "option ..." lines are skipped - no engine option
+        // configuration is exposed by this layer yet.
     }
 
     return std::unexpected(EngineError{EngineErrorCode::HandshakeFailed, "Engine process ended before sending 'uciok'"});

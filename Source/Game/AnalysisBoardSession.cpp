@@ -6,8 +6,7 @@
 
 namespace
 {
-// Plain, fixed search time - same reasoning as SandboxSession's own kSandboxMoveTimeMs: just
-// "analyze this position" quickly enough to feel responsive, no Elo/Blitz/book/premove concerns.
+// Plain, fixed search time - same reasoning as SandboxSession's kSandboxMoveTimeMs.
 constexpr int kAnalysisMoveTimeMs = 1000;
 
 MoveGenerator::PositionState StandardStartPosition()
@@ -25,11 +24,10 @@ MoveGenerator::PositionState StandardStartPosition()
 AnalysisBoardSession::AnalysisBoardSession(EngineController& engine)
     : m_Engine(&engine), m_StartPosition(StandardStartPosition()), m_Current(m_StartPosition)
 {
-    // Deliberately does NOT call RequestAnalysis() here - this constructor runs during App's
-    // own construction, well before App::Run() actually starts m_Engine's process, so a search
-    // requested this early would just hit EngineController::FindBestMoveAsync's "not running"
-    // path and be silently discarded. App::Run() calls Reset() once, right after starting the
-    // engine, to fire the first real request instead.
+    // Deliberately does NOT call RequestAnalysis() here - this runs during App's own
+    // construction, before App::Run() starts m_Engine's process, so a search requested this
+    // early would just be silently discarded. App::Run() calls Reset() once, right after
+    // starting the engine, to fire the first real request instead.
 }
 
 void AnalysisBoardSession::Reset()
@@ -147,7 +145,7 @@ std::vector<MoveGenerator::LegalMove> AnalysisBoardSession::GetLegalMovesFrom(in
 void AnalysisBoardSession::PlayMove(const MoveGenerator::LegalMove& move)
 {
     // A move played while the cursor is behind the end of history discards whatever "future"
-    // was there - the standard PGN-viewer convention (see this method's header comment).
+    // was there - the standard PGN-viewer convention.
     if (m_Cursor < m_History.size())
         m_History.resize(m_Cursor);
 
@@ -189,8 +187,8 @@ std::optional<std::string> AnalysisBoardSession::GetLookaheadMove() const
 
     // Validate against a position with the suggestion actually applied, rather than trusting
     // the string and drawing it straight onto the still-one-ply-behind board - see
-    // SandboxSession::GetLookaheadMove()'s comment for why (a pawn move, especially en passant,
-    // can otherwise look outright illegal).
+    // SandboxSession::GetLookaheadMove()'s comment (a pawn move, especially en passant, can
+    // otherwise look outright illegal).
     if (!MoveGenerator::VerifyTwoPlyContinuation(m_Current, candidate->OwnMove, candidate->ReplyMove))
         return std::nullopt;
 

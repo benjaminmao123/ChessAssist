@@ -10,15 +10,12 @@
 // from the tracked player's own last search. Consumed by GameSession::TryPremove() to play the
 // response instantly once the opponent's actual move confirms the prediction, and peeked
 // (without consuming) by GameSession::GetLookaheadMove() to draw it as an on-board arrow.
-// Extracted out of GameSession since it's a self-contained state machine independent of
-// everything else that class does.
 //
-// Deliberately has no plain "clear" - a fresh search request for the opponent's own turn
-// (issued right after our own move, exactly the position this candidate is waiting out) must
-// NOT invalidate it, or premoves could never fire at all; only Take()/InvalidateIfMismatched()
-// ever remove a stored candidate, both driven by TryPremove()'s own logic. Internally
-// thread-safe: Update() is meant to be called from the engine's background reader thread (see
-// GameSession::OnEngineInfo), everything else from the UI thread.
+// Deliberately has no plain "clear": a fresh search request for the opponent's own turn (issued
+// right after our own move, exactly the position this candidate is waiting out) must NOT
+// invalidate it, or premoves could never fire. Only Take()/InvalidateIfMismatched() ever remove
+// a stored candidate. Internally thread-safe: Update() is called from the engine's background
+// reader thread (see GameSession::OnEngineInfo), everything else from the UI thread.
 class PremoveTracker
 {
 public:
@@ -28,32 +25,27 @@ public:
         std::string PredictedOpponentMove;
         std::string OurResponse;
 
-        // GameSession::GetPositionGeneration() at the moment this candidate was computed (i.e.
-        // while ExpectedOwnMove's position was still on the board) - lets GetLookaheadMove()
-        // detect staleness even when ExpectedOwnMove's *string* happens to coincide with the
-        // current anchor again later in the game (e.g. the same queen retreat square gets
-        // suggested at two unrelated points), which a plain string comparison alone can't catch
-        // since this candidate is deliberately never cleared on its own (see this class's own
-        // comment).
+        // GameSession::GetPositionGeneration() at the moment this candidate was computed - lets
+        // GetLookaheadMove() detect staleness even when ExpectedOwnMove's *string* happens to
+        // coincide with the current anchor again later in the game (e.g. the same retreat square
+        // suggested twice), which a plain string comparison can't catch since this candidate is
+        // never cleared on its own (see the class comment).
         std::uint64_t Generation = 0;
     };
 
     void Update(std::string expectedOwnMove, std::string predictedOpponentMove, std::string ourResponse, std::uint64_t generation);
 
-    // Non-consuming read of whatever candidate is currently stored, for GetLookaheadMove()'s
-    // own freshness check against whichever anchor applies - unlike Take()/
-    // InvalidateIfMismatched(), never modifies state.
+    // Non-consuming read of whatever candidate is stored, for GetLookaheadMove()'s own
+    // freshness check - unlike Take()/InvalidateIfMismatched(), never modifies state.
     [[nodiscard]] std::optional<Candidate> Peek() const;
 
-    // Unconditionally takes (clears) whatever candidate is stored, if any - used once it's
-    // confirmed to be the tracked player's turn again (the opponent's move already landed), so
-    // whatever candidate was waiting either just got its chance to fire or is now moot either
-    // way.
+    // Unconditionally takes (clears) the stored candidate, if any - used once it's confirmed to
+    // be the tracked player's turn again, so the waiting candidate either just got its chance to
+    // fire or is now moot.
     [[nodiscard]] std::optional<Candidate> Take();
 
     // Discards the stored candidate only if it doesn't match expectedOwnMove - the "we just
-    // moved, but it wasn't what the candidate assumed we'd play" invalidation. No-op if there's
-    // no candidate, or it already matches.
+    // moved, but it wasn't what the candidate assumed we'd play" invalidation.
     void InvalidateIfMismatched(const std::string& expectedOwnMove);
 
 private:

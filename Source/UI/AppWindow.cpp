@@ -34,11 +34,9 @@ void GlfwErrorCallback(int error, const char* description)
 }
 
 // Sets the window's title bar/taskbar/Alt-Tab icon from Assets/Icons/window_icon.png - GLFW
-// copies the pixel data into its own platform-specific icon resource internally, so the source
-// buffer only needs to outlive this one call, unlike the piece/board textures in
-// ChessPieceTextures.cpp (which stay GPU-resident for the app's whole lifetime). Silently leaves
-// the platform default icon in place (just logs) if the file is missing or fails to decode -
-// not worth failing startup over.
+// copies the pixel data internally, so the source buffer only needs to outlive this call.
+// Silently leaves the platform default icon in place (just logs) if the file is missing or
+// fails to decode - not worth failing startup over.
 void SetWindowIcon(GLFWwindow* window)
 {
     const std::filesystem::path iconPath = ExecutablePathUtil::GetAssetsDirectory() / "Icons" / "window_icon.png";
@@ -65,8 +63,7 @@ constexpr float kUiScale = 1.5f;
 // from bitmap upscaling.
 constexpr float kBaseFontSize = 16.0f;
 
-// Loads the bundled Roboto Medium as the default font, replacing Dear ImGui's built-in
-// pixel font used by the screenshot mock this theme matches. Falls back to the built-in font
+// Loads the bundled Roboto Medium as the default font. Falls back to the built-in font
 // (AddFontDefault) if the bundled .ttf isn't found next to the executable.
 void LoadUiFont(ImGuiIO& io)
 {
@@ -80,11 +77,8 @@ void LoadUiFont(ImGuiIO& io)
     }
 }
 
-// A near-black "dashboard" dark theme - light-gray/white text on a near-black canvas, a
-// blue accent reserved for checkboxes/checkmarks and focus states, and white/light-gray
-// grabs for sliders and progress fills, layered on top of ImGui's default dark palette
-// rather than replacing it wholesale - anything not overridden below still comes from
-// StyleColorsDark().
+// A near-black "dashboard" dark theme layered on top of ImGui's default dark palette rather
+// than replacing it wholesale - anything not overridden below still comes from StyleColorsDark().
 void ApplyModernDarkTheme()
 {
     ImGui::StyleColorsDark();
@@ -211,11 +205,9 @@ bool AppWindow::Init(int width, int height, const std::string& title)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     // Pinned next to the executable instead of ImGui's default (CWD-relative) "imgui.ini", so
-    // the saved dock layout is found reliably regardless of how the app was launched. ImGui
-    // loads this automatically on the first NewFrame() and autosaves it periodically once
-    // dirty - App::Run() reads whether this file already existed at startup (before that first
-    // load) to decide whether to force its own default dock layout or leave the user's
-    // restored one alone (see SetupDefaultDockLayout()'s comment).
+    // the saved dock layout is found reliably regardless of how the app was launched. App::Run()
+    // reads whether this file already existed at startup to decide whether to force its own
+    // default dock layout or leave the user's restored one alone (see SetupDefaultDockLayout()).
     m_Impl->IniFilePath = ExecutablePathUtil::GetImGuiIniFilePath().string();
     io.IniFilename = m_Impl->IniFilePath.c_str();
 
@@ -234,10 +226,9 @@ void AppWindow::Shutdown()
     if (!m_Impl->Window)
         return;
 
-    // Flushes any layout change still pending ImGui's own periodic autosave (see Init()'s
-    // io.IniFilename comment) - without this, rearranging docked windows and then closing the
-    // app shortly after could silently lose the change instead of persisting it for next
-    // launch.
+    // Flushes any layout change still pending ImGui's own periodic autosave - without this,
+    // rearranging docked windows and closing the app shortly after could silently lose the
+    // change.
     ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
 
     ImGui_ImplOpenGL3_Shutdown();

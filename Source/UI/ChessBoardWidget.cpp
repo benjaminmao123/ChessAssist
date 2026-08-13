@@ -106,10 +106,9 @@ void ChessBoardDrawEvalBar(ImDrawList* drawList, ImVec2 barMin, ImVec2 barMax, s
 
 namespace
 {
-// File letters (a-h) in the bottom-right corner of the bottom visual row's squares, rank
-// numbers (1-8) in the top-left corner of the left visual column's squares - lichess/chess.com
-// convention, drawn inside the board's own squares so no extra layout space is needed. Colored
-// to contrast with each square's own color.
+// File letters (a-h) in the bottom-right corner of the bottom visual row's squares, rank numbers
+// (1-8) in the top-left corner of the left visual column's squares - lichess/chess.com
+// convention, drawn inside the board's own squares so no extra layout space is needed.
 void DrawCoordinateLabels(ImDrawList* drawList, ImVec2 boardOrigin, float squareSize, bool blackAtBottom)
 {
     constexpr float kLabelPadding = 2.0f;
@@ -168,8 +167,7 @@ void ChessBoardWidget::UpdateInteraction(IPlayableBoard& board, std::optional<in
 
     // Left-clicking the board clears any drawn planning arrows - chess.com's own convention
     // (left-click dismisses annotations; only right-click-drag creates/removes them). Fires
-    // regardless of what else this click does (pick up a piece, play a move, deselect) -
-    // matches "clicking to interact with the board" broadly, not just empty squares.
+    // regardless of what else this click does, not just on empty squares.
     if (squareUnderMouse && windowHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         m_AnnotationArrows.clear();
 
@@ -359,11 +357,11 @@ void ChessBoardWidget::DrawPromotionPopup(IPlayableBoard& board, const ChessPiec
     {
         // Copied out (not iterated in place) since a clicked choice mutates/resets
         // m_PendingPromotionChoices below - iterating the optional's own vector while resetting
-        // it mid-loop would be undefined behavior. The board hasn't been mutated by PlayMove
-        // yet at this point, so choices.front().From (the pawn's square) still reflects who's
-        // promoting.
+        // it mid-loop would be undefined behavior.
         const std::vector<MoveGenerator::LegalMove> choices = *m_PendingPromotionChoices;
         const BoardState& boardState = board.GetBoard();
+        // The board hasn't been mutated by PlayMove yet, so From's square still holds the
+        // promoting pawn.
         const PieceColor promotingColor = (!choices.empty() && boardState[choices.front().From]) ? boardState[choices.front().From]->Color : board.GetSideToMove();
 
         std::optional<MoveGenerator::LegalMove> chosen;

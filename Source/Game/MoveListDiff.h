@@ -17,8 +17,7 @@ struct MoveListDiff
 };
 
 // Pure decision logic for GameSession::Poll()'s SAN-move-list diffing, split out for
-// testability (no CdpClient/ChessRules/browser dependency involved) - mirrors how
-// UCIProtocol is split out from UCIClient elsewhere in this codebase. currentMoveCount is
-// the site's current move-list length; alreadyAppliedCount is how many moves GameSession has
-// already applied to ChessRules/GameTracker.
+// testability (no CdpClient/ChessRules/browser dependency). currentMoveCount is the site's
+// current move-list length; alreadyAppliedCount is how many moves GameSession has already
+// applied to ChessRules/GameTracker.
 [[nodiscard]] MoveListDiff ComputeMoveListDiff(std::size_t currentMoveCount, std::size_t alreadyAppliedCount);

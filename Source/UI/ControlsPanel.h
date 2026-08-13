@@ -10,8 +10,7 @@ class GameSession;
 
 // The "Controls" window: engine restart, browser launch, site connect/disconnect, and the
 // autoplay toggle. Owns the small bits of UI-only state (site selection, engine path text
-// buffer, autoplay checkbox) that don't belong on EngineController/GameSession themselves -
-// those only track state that's actually load-bearing for their own behavior.
+// buffer, autoplay checkbox) that don't belong on EngineController/GameSession themselves.
 class ControlsPanel
 {
 public:
@@ -22,16 +21,14 @@ public:
     // at startup to get the engine running before the first frame.
     void RestartEngine(std::string_view enginePath);
 
-    // The engine path currently shown in the field - either the bundled default (nothing
-    // customized/loaded) or whatever was last typed/picked or loaded from settings.ini. App
-    // passes this to the startup RestartEngine() call so a persisted custom path takes effect
-    // immediately rather than being silently overridden by the bundled default.
+    // The engine path currently shown in the field - either the bundled default or whatever was
+    // last typed/picked or loaded from settings.ini. App passes this to the startup
+    // RestartEngine() call so a persisted custom path takes effect immediately.
     [[nodiscard]] std::string_view GetEnginePath() const;
 
-    // Writes every setting this panel owns to settings.ini (see ExecutablePathUtil::
-    // GetSettingsFilePath()) next to the executable, overwriting whatever was there - the
+    // Writes every setting this panel owns to settings.ini, overwriting whatever was there - the
     // counterpart to the constructor's LoadSettings(). Best-effort: logs and gives up on any
-    // write failure rather than throwing. Called once by App at shutdown.
+    // write failure. Called once by App at shutdown.
     void SaveSettings() const;
 
     // Not thread-safe: call once per frame from the UI thread only.
@@ -39,18 +36,15 @@ public:
 
 private:
     // Restores every setting this panel owns from settings.ini, if it exists (a fresh install/
-    // deleted file just keeps the in-class defaults - not an error). Called once from the
-    // constructor, before the engine or GameSession are otherwise touched, so it only needs to
-    // update its own members plus GameSession's mirroring setters directly (ApplyEloTarget's
-    // EngineController half is a no-op before the engine has started - RestartEngine(), called
-    // by App right after construction, re-applies it once the engine actually exists).
+    // deleted file just keeps the in-class defaults). Called once from the constructor, before
+    // the engine exists - ApplyEloTarget's EngineController half is a no-op until RestartEngine()
+    // (called by App right after construction) re-applies it once the engine actually starts.
     void LoadSettings();
 
 
-    // The single "Elo" control spans two independent things that both need reapplying
-    // whenever the engine restarts (a fresh process starts unlimited): the engine's own
-    // internal strength limiting (UCI_LimitStrength/UCI_Elo, sent directly via
-    // EngineController::SetOption) and GameSession's derived movetime/depth preset (see
+    // The single "Elo" control spans two independent things that both need reapplying whenever
+    // the engine restarts (a fresh process starts unlimited): the engine's own strength limiting
+    // (UCI_LimitStrength/UCI_Elo) and GameSession's derived movetime/depth preset (see
     // GameSession::SetEloTarget). Called both from the Elo widgets and from RestartEngine().
     void ApplyEloTarget();
 

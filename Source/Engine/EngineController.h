@@ -40,12 +40,9 @@ public:
     void SetOnBestMove(BestMoveCallback callback);
     [[nodiscard]] bool IsRunning() const;
 
-    // Sends "setoption name <name> value <value>" - e.g. UCI_LimitStrength/UCI_Elo to cap
-    // playing strength. Takes effect for future searches, not one already in flight. A fresh
-    // engine process starts with every option at its default, so callers that restart the
-    // engine (see ControlsPanel::RestartEngine) are responsible for re-sending anything that
-    // needs to persist across a restart - this class has no memory of previously-set options.
-    // Returns false without sending anything if the engine isn't running.
+    // Sends "setoption name <name> value <value>" (e.g. UCI_LimitStrength/UCI_Elo). Applies to
+    // future searches only; a restarted engine resets to defaults, so callers (see
+    // ControlsPanel::RestartEngine) must re-send anything that needs to persist.
     bool SetOption(std::string_view name, std::string_view value);
 
 private:
@@ -61,27 +58,18 @@ private:
     std::condition_variable m_SearchCv;
     bool m_SearchInProgress = false;
 
-    // Guards against displaying a stale bestmove: GameSession fires a new search reactively
-    // every time a move is detected, without waiting for the previous search (for the
-    // position before that move) to finish - if moves come in faster than the search's
-    // movetime, an old search's result can arrive after a newer one has already been
-    // requested. m_RequestGeneration is bumped on every FindBestMoveAsync call (before it
-    // may block waiting for an in-flight search), and the generation active when a result
-    // was requested is compared against it when the result comes back: if a newer request
-    // exists, this one is stale and its OnBestMove callback is suppressed (its promise is
-    // still fulfilled, so blocking FindBestMove() callers aren't left hanging).
+    // Guards against a stale bestmove: GameSession can fire a new search before the previous
+    // one's result arrives, so this is bumped per FindBestMoveAsync call and compared against
+    // the requesting generation when a result comes back - a mismatch means the result is
+    // stale and its OnBestMove callback is suppressed (the promise is still fulfilled so
+    // blocking callers aren't left hanging).
     std::atomic<std::uint64_t> m_RequestGeneration{0};
 
-    // Request ID of the search whose "position"/"go" was most recently actually sent to the
-    // engine (set in FindBestMoveAsync right alongside SendPosition/SendGo). Unlike bestmove
-    // lines, UCI "info" lines carry no id linking them back to a request, so HandleInfoLine
-    // can't compare against a per-line request ID - it instead compares this against
-    // m_RequestGeneration: if a newer request already exists (e.g. one that's still waiting
-    // for this search's own stop-triggered bestmove before it can send its own position/go),
-    // any info line arriving in the meantime belongs to a search that's already superseded
-    // and must be discarded rather than shown - a search stopped microseconds after starting
-    // can otherwise surface a placeholder line like "info depth 0 score mate 0" that then
-    // sits in the UI, indistinguishable from a real result, until fresher info arrives.
+    // Request ID of the search most recently sent to the engine. UCI "info" lines carry no
+    // request id, so HandleInfoLine compares this against m_RequestGeneration instead - if a
+    // newer request already exists, the info line belongs to a superseded search and is
+    // discarded (otherwise a search stopped right after starting can leave a stale placeholder
+    // line like "info depth 0 score mate 0" sitting in the UI).
     std::atomic<std::uint64_t> m_ActiveSearchRequestId{0};
 
     std::mutex m_PendingMutex;
