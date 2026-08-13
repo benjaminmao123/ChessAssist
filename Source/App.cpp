@@ -13,6 +13,7 @@
 // this narrow use, but not guaranteed compatible across ImGui versions like the rest of this file.
 #include <imgui_internal.h>
 
+#include <cfloat>
 #include <ctime>
 #include <filesystem>
 #include <memory>
@@ -289,8 +290,13 @@ void App::DrawAboutPopup()
         m_ShowAboutPopup = false;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f));
-    if (!ImGui::BeginPopupModal("About ChessAssist", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
+    // AlwaysAutoResize only sizes the window to fit its *body* content - it doesn't account for
+    // the titlebar text's own width, so without a minimum width constraint here, narrow body
+    // content (as below) lets the window shrink enough to clip "About ChessAssist" in the
+    // titlebar itself.
+    const float minWidth = ImGui::CalcTextSize("About ChessAssist").x + ImGui::GetStyle().WindowPadding.x * 2.0f + 40.0f;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(minWidth, 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+    if (!ImGui::BeginPopupModal("About ChessAssist", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         return;
 
     ImGui::Text("ChessAssist");
