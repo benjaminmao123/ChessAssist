@@ -311,9 +311,11 @@ private:
     bool m_Connected = false;
     bool m_Desynced = false;
 
-    // See GetPositionGeneration()'s comment. UI-thread-only, like m_Rules/m_Tracker (only
-    // ever bumped from Poll()/ConnectToSite(), both UI-thread-only).
-    std::uint64_t m_PositionGeneration = 0;
+    // See GetPositionGeneration()'s comment. Only ever bumped from Poll()/ConnectToSite(),
+    // both UI-thread-only - but OnEngineInfo (engine reader thread) also reads it to stamp
+    // premove candidates (see the call into m_Premove.Update()), so it's atomic rather than
+    // the plain UI-thread-only members around it.
+    std::atomic<std::uint64_t> m_PositionGeneration{0};
 
     // Set once RequestEngineMove() has fired at least once since the last ConnectToSite() -
     // guards Poll()'s NoChange branch so it seeds exactly one engine request for the starting

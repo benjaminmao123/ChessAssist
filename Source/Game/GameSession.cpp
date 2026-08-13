@@ -207,7 +207,7 @@ std::optional<int> GameSession::GetEnPassantTarget() const
 
 std::uint64_t GameSession::GetPositionGeneration() const
 {
-    return m_PositionGeneration;
+    return m_PositionGeneration.load();
 }
 
 std::vector<std::string> GameSession::Poll()
@@ -502,7 +502,7 @@ void GameSession::OnEngineInfo(const SearchInfo& info)
     if (info.Pv.size() < 3)
         return;
 
-    m_Premove.Update(info.Pv[0], info.Pv[1], info.Pv[2], m_PositionGeneration);
+    m_Premove.Update(info.Pv[0], info.Pv[1], info.Pv[2], m_PositionGeneration.load());
 }
 
 void GameSession::Tick()
@@ -561,7 +561,8 @@ std::optional<std::string> GameSession::GetLookaheadMove() const
     // generation can't lie: on our own turn the candidate must have been computed for the
     // position still on the board right now; on the opponent's turn, exactly one real move
     // (ours) has landed since.
-    const std::uint64_t expectedGeneration = isOurTurn ? m_PositionGeneration : m_PositionGeneration - 1;
+    const std::uint64_t currentGeneration = m_PositionGeneration.load();
+    const std::uint64_t expectedGeneration = isOurTurn ? currentGeneration : currentGeneration - 1;
     if (candidate->Generation != expectedGeneration)
         return std::nullopt;
 
