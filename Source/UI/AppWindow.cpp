@@ -20,11 +20,36 @@
 
 #include <GL/gl.h>
 
+#include <stb_image.h>
+
 namespace
 {
 void GlfwErrorCallback(int error, const char* description)
 {
     LOG_ERROR("GLFW error {}: {}", error, description);
+}
+
+// Sets the window's title bar/taskbar/Alt-Tab icon from Assets/Icons/window_icon.png - GLFW
+// copies the pixel data into its own platform-specific icon resource internally, so the source
+// buffer only needs to outlive this one call, unlike the piece/board textures in
+// ChessPieceTextures.cpp (which stay GPU-resident for the app's whole lifetime). Silently leaves
+// the platform default icon in place (just logs) if the file is missing or fails to decode -
+// not worth failing startup over.
+void SetWindowIcon(GLFWwindow* window)
+{
+    const std::filesystem::path iconPath = ExecutablePathUtil::GetAssetsDirectory() / "Icons" / "window_icon.png";
+
+    GLFWimage icon{};
+    unsigned char* pixels = stbi_load(iconPath.string().c_str(), &icon.width, &icon.height, nullptr, 4);
+    if (!pixels)
+    {
+        LOG_ERROR("SetWindowIcon: failed to load {} - leaving the default window icon in place", iconPath.string());
+        return;
+    }
+
+    icon.pixels = pixels;
+    glfwSetWindowIcon(window, 1, &icon);
+    stbi_image_free(pixels);
 }
 
 // Fixed UI enlargement applied once at startup so text/widgets are easier to read - not tied
@@ -168,6 +193,8 @@ bool AppWindow::Init(int width, int height, const std::string& title)
         glfwTerminate();
         return false;
     }
+
+    SetWindowIcon(m_Impl->Window);
 
     glfwMakeContextCurrent(m_Impl->Window);
     glfwSwapInterval(1);  // vsync
