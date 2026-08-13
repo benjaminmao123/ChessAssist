@@ -34,6 +34,7 @@ void AnalysisBoardPanel::LoadSettings()
         // See BoardStatePanel::LoadSettings()'s comment for why the static_cast is needed here.
         m_ShowLookaheadArrow = ini.Get<bool>("AnalysisBoard", "ShowLookaheadArrow", static_cast<bool>(m_ShowLookaheadArrow));
         m_ShowAlternateMoves = ini.Get<bool>("AnalysisBoard", "ShowAlternateMoves", static_cast<bool>(m_ShowAlternateMoves));
+        m_Open = ini.Get<bool>("Window", "AnalysisBoardOpen", static_cast<bool>(m_Open));
     }
     catch (const std::exception& e)
     {
@@ -52,13 +53,17 @@ void AnalysisBoardPanel::SaveSettings() const
 
     SettingsIni::UpsertEntry(ini, "AnalysisBoard", "ShowLookaheadArrow", m_ShowLookaheadArrow);
     SettingsIni::UpsertEntry(ini, "AnalysisBoard", "ShowAlternateMoves", m_ShowAlternateMoves);
+    SettingsIni::UpsertEntry(ini, "Window", "AnalysisBoardOpen", m_Open);
 
     SettingsIni::SaveMerged(path, ini, "AnalysisBoardPanel::SaveSettings");
 }
 
 void AnalysisBoardPanel::Draw()
 {
-    ImGui::Begin("Analysis Board");
+    if (!m_Open)
+        return;
+
+    ImGui::Begin("Analysis Board", &m_Open);
 
     ImGuiUtils::CheckboxTextWrapped("##ShowLookaheadArrow", &m_ShowLookaheadArrow, "Show lookahead arrow");
     ImGui::SameLine();

@@ -1,6 +1,13 @@
 #include "LogPanel.h"
 
+#include "Engine/ExecutablePathUtil.h"
+#include "Logging/Log.h"
+#include "Settings/SettingsIni.h"
+
+#include <ini/ini.h>
+
 #include <cfloat>
+#include <filesystem>
 #include <string>
 
 namespace
@@ -22,6 +29,42 @@ ImVec4 LevelColor(spdlog::level::level_enum level)
     }
 }
 }  // namespace
+
+LogPanel::LogPanel()
+{
+    LoadSettings();
+}
+
+void LogPanel::LoadSettings()
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+    if (!std::filesystem::exists(path))
+        return;
+
+    try
+    {
+        const inih::INIReader ini(path);
+        // See BoardStatePanel::LoadSettings()'s comment for why the static_cast is needed here.
+        m_Open = ini.Get<bool>("Window", "LogOpen", static_cast<bool>(m_Open));
+    }
+    catch (const std::exception& e)
+    {
+        LOG_WARN("LogPanel::LoadSettings: failed to read '{}': {} - using defaults", path, e.what());
+    }
+}
+
+void LogPanel::SaveSettings() const
+{
+    const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
+
+    // Read-merge rather than starting from a blank INIReader - same reasoning as
+    // BoardStatePanel::SaveSettings()'s own comment.
+    inih::INIReader ini = SettingsIni::LoadOrEmpty(path, "LogPanel::SaveSettings");
+
+    SettingsIni::UpsertEntry(ini, "Window", "LogOpen", m_Open);
+
+    SettingsIni::SaveMerged(path, ini, "LogPanel::SaveSettings");
+}
 
 void LogPanel::AddLine(spdlog::level::level_enum level, std::string_view line)
 {
@@ -57,9 +100,12 @@ void LogPanel::TrimIfNeeded()
 
 void LogPanel::Draw()
 {
+    if (!m_Open)
+        return;
+
     std::scoped_lock lock(m_Mutex);
 
-    ImGui::Begin("Log");
+    ImGui::Begin("Log", &m_Open);
 
     if (ImGui::Button("Clear"))
     {

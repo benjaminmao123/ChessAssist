@@ -42,6 +42,11 @@ public:
     // draws a placeholder rather than being omitted.
     void Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, const std::vector<std::string>& alternateMoves, std::optional<float> accuracyPercent);
 
+    // Shows/hides the panel - bound to the window's own titlebar close button (via Draw()'s
+    // ImGui::Begin(..., &m_Open)) and to App's menu-bar checkbox for reopening it.
+    [[nodiscard]] bool IsOpen() const { return m_Open; }
+    void SetOpen(bool open) { m_Open = open; }
+
 private:
     // Restores m_ShowLookaheadArrow/m_ShowAlternateMoves from settings.ini, if it exists (a
     // fresh install/deleted file keeps the in-class defaults). Called once from the constructor.
@@ -51,6 +56,9 @@ private:
     EngineInfoPanel* m_SandboxEnginePanel = nullptr;
     SandboxSession* m_Sandbox = nullptr;
     const ChessPieceTextures* m_Textures = nullptr;
+
+    // See IsOpen()/SetOpen().
+    bool m_Open = true;
 
     // Display-only toggles for the lookahead/alternate-move arrows - neither affects
     // GameSession/engine behavior, purely what gets drawn. Drawn as checkboxes directly in

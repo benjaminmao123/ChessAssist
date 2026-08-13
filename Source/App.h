@@ -37,6 +37,19 @@ private:
     // own load/autosave takes over for good and this is never called again for that install.
     void SetupDefaultDockLayout(unsigned int dockspaceId);
 
+    // A "Window" menu listing every closeable panel with a checkmark, so one closed via its own
+    // titlebar X can be reopened - the panels' own IsOpen()/SetOpen() are otherwise only ever
+    // read/written from their own Draw(). Also opens the About popup (see DrawAboutPopup()) from
+    // its "Help" menu. Call once per frame, between AppWindow::NewFrame() and SetupDockspace() so
+    // the reserved menu-bar space is accounted for (see NewFrame()'s comment).
+    void DrawMainMenuBar();
+
+    // The "About" popup (app name/version) - ImGui::OpenPopup() is called from the Help menu
+    // above; this actually draws it. A modal popup rather than another closeable panel since
+    // it's a one-off info box, not something worth taking up permanent dock space. Call once per
+    // frame, anywhere after AppWindow::NewFrame().
+    void DrawAboutPopup();
+
     // Construction order matters: members are built in this order (destroyed in reverse), and
     // several constructors take references to earlier members - m_SandboxSession needs
     // m_SandboxController; m_BoardStatePanel needs m_EnginePanel, m_SandboxEnginePanel,
@@ -67,6 +80,12 @@ private:
 
     std::chrono::steady_clock::time_point m_LastPollTime;
     bool m_LayoutInitialized = false;
+
+    // Set by the Help menu's "About" item, consumed by DrawAboutPopup() - ImGui::OpenPopup()
+    // can't be called directly from inside the menu item (it would hash the popup's ID against
+    // the menu's own ID stack, which BeginPopupModal() outside the menu would never match), so
+    // this flag hands the actual OpenPopup() call off to a context outside any menu.
+    bool m_ShowAboutPopup = false;
 
     // Compared each frame against GameSession::GetPositionGeneration() to know when to resync
     // m_SandboxSession to the live position - nullopt only before the first frame, so that

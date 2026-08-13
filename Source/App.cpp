@@ -4,6 +4,7 @@
 #include "Engine/ExecutablePathUtil.h"
 #include "Logging/Log.h"
 #include "UI/ImGuiLogSink.h"
+#include "Version.h"
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
@@ -62,7 +63,9 @@ void App::InitLogging()
 
 int App::Run()
 {
-    if (!m_Window.Init(1920, 1080, "Chess Assist"))
+    LOG_INFO("ChessAssist {}", ChessAssist::kVersion);
+
+    if (!m_Window.Init(1920, 1080, std::string("Chess Assist ") + ChessAssist::kVersion))
     {
         LOG_ERROR("Failed to initialize application window");
         return 1;
@@ -144,7 +147,10 @@ int App::Run()
 
     while (!m_Window.ShouldClose())
     {
-        const unsigned int dockspaceId = m_Window.BeginFrame();
+        m_Window.NewFrame();
+        DrawMainMenuBar();
+        DrawAboutPopup();
+        const unsigned int dockspaceId = m_Window.SetupDockspace();
 
         if (!m_LayoutInitialized)
         {
@@ -190,6 +196,7 @@ int App::Run()
     m_ControlsPanel.SaveSettings();
     m_BoardStatePanel.SaveSettings();
     m_AnalysisBoardPanel.SaveSettings();
+    m_LogPanel.SaveSettings();
 
     m_SandboxController.StopSearch();
     m_SandboxController.Shutdown();
@@ -211,26 +218,92 @@ void App::SetupDefaultDockLayout(unsigned int dockspaceId)
     // deprecated-enum-enum-conversion warning from ORing the two directly.
     ImGui::DockBuilderRemoveNode(id);
     ImGui::DockBuilderAddNode(id, static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_DockSpace) | ImGuiDockNodeFlags_PassthruCentralNode);
-    ImGui::DockBuilderSetNodeSize(id, ImGui::GetMainViewport()->Size);
+    ImGui::DockBuilderSetNodeSize(id, ImGui::GetMainViewport()->WorkSize);
+
+    // Log spans the full width along the bottom, split off before the left/right split below -
+    // Controls' content is nowhere near tall enough to fill a full-height column, so giving Log
+    // that reclaimed strip (instead of confining it under just the board) puts the space to use
+    // rather than leaving it empty under Controls.
+    ImGuiID logId = 0;
+    ImGuiID topId = 0;
+    ImGui::DockBuilderSplitNode(id, ImGuiDir_Down, 0.22f, &logId, &topId);
 
     // Controls (small/fixed content) gets a narrow left column; the board (primary content)
-    // gets the large remaining area; Log (rarely needs much height) gets a strip under it.
+    // gets the remaining area.
     ImGuiID leftId = 0;
     ImGuiID rightId = 0;
-    ImGui::DockBuilderSplitNode(id, ImGuiDir_Left, 0.22f, &leftId, &rightId);
-
-    ImGuiID boardId = 0;
-    ImGuiID logId = 0;
-    ImGui::DockBuilderSplitNode(rightId, ImGuiDir_Up, 0.75f, &boardId, &logId);
+    ImGui::DockBuilderSplitNode(topId, ImGuiDir_Left, 0.22f, &leftId, &rightId);
 
     ImGui::DockBuilderDockWindow("Controls", leftId);
     // Both docked to the same node so they appear as tabs in one panel area - the tracked live
     // game and the free-standing analysis tool.
-    ImGui::DockBuilderDockWindow("Live Analysis Board", boardId);
-    ImGui::DockBuilderDockWindow("Analysis Board", boardId);
+    ImGui::DockBuilderDockWindow("Live Analysis Board", rightId);
+    ImGui::DockBuilderDockWindow("Analysis Board", rightId);
     ImGui::DockBuilderDockWindow("Log", logId);
 
     ImGui::DockBuilderFinish(id);
+}
+
+void App::DrawMainMenuBar()
+{
+    if (!ImGui::BeginMainMenuBar())
+        return;
+
+    if (ImGui::BeginMenu("Window"))
+    {
+        bool controlsOpen = m_ControlsPanel.IsOpen();
+        if (ImGui::MenuItem("Controls", nullptr, &controlsOpen))
+            m_ControlsPanel.SetOpen(controlsOpen);
+
+        bool liveBoardOpen = m_BoardStatePanel.IsOpen();
+        if (ImGui::MenuItem("Live Analysis Board", nullptr, &liveBoardOpen))
+            m_BoardStatePanel.SetOpen(liveBoardOpen);
+
+        bool analysisBoardOpen = m_AnalysisBoardPanel.IsOpen();
+        if (ImGui::MenuItem("Analysis Board", nullptr, &analysisBoardOpen))
+            m_AnalysisBoardPanel.SetOpen(analysisBoardOpen);
+
+        bool logOpen = m_LogPanel.IsOpen();
+        if (ImGui::MenuItem("Log", nullptr, &logOpen))
+            m_LogPanel.SetOpen(logOpen);
+
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Help"))
+    {
+        if (ImGui::MenuItem("About ChessAssist"))
+            m_ShowAboutPopup = true;
+
+        ImGui::EndMenu();
+    }
+
+    ImGui::EndMainMenuBar();
+}
+
+void App::DrawAboutPopup()
+{
+    if (m_ShowAboutPopup)
+    {
+        ImGui::OpenPopup("About ChessAssist");
+        m_ShowAboutPopup = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(0.0f, 0.0f));
+    if (!ImGui::BeginPopupModal("About ChessAssist", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize))
+        return;
+
+    ImGui::Text("ChessAssist");
+    ImGui::TextDisabled("Version %s", ChessAssist::kVersion);
+    ImGui::Separator();
+    ImGui::TextWrapped("A live chess.com/Lichess analysis and autoplay assistant, powered by a bundled Stockfish.");
+    ImGui::TextWrapped("Licensed under the GPLv3.");
+    ImGui::Spacing();
+
+    if (ImGui::Button("Close", ImVec2(120.0f, 0.0f)))
+        ImGui::CloseCurrentPopup();
+
+    ImGui::EndPopup();
 }
 
 void App::PollGameSession()

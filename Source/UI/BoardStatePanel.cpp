@@ -36,6 +36,7 @@ void BoardStatePanel::LoadSettings()
         // ControlsPanel::LoadSettings() uses for its own bool settings.
         m_ShowLookaheadArrow = ini.Get<bool>("Display", "ShowLookaheadArrow", static_cast<bool>(m_ShowLookaheadArrow));
         m_ShowAlternateMoves = ini.Get<bool>("Display", "ShowAlternateMoves", static_cast<bool>(m_ShowAlternateMoves));
+        m_Open = ini.Get<bool>("Window", "LiveAnalysisBoardOpen", static_cast<bool>(m_Open));
     }
     catch (const std::exception& e)
     {
@@ -56,13 +57,17 @@ void BoardStatePanel::SaveSettings() const
 
     SettingsIni::UpsertEntry(ini, "Display", "ShowLookaheadArrow", m_ShowLookaheadArrow);
     SettingsIni::UpsertEntry(ini, "Display", "ShowAlternateMoves", m_ShowAlternateMoves);
+    SettingsIni::UpsertEntry(ini, "Window", "LiveAnalysisBoardOpen", m_Open);
 
     SettingsIni::SaveMerged(path, ini, "BoardStatePanel::SaveSettings");
 }
 
 void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, const std::optional<std::string>& lookaheadMove, const std::vector<std::string>& alternateMoves, std::optional<float> accuracyPercent)
 {
-    ImGui::Begin("Live Analysis Board");
+    if (!m_Open)
+        return;
+
+    ImGui::Begin("Live Analysis Board", &m_Open);
 
     // Display-only toggles for the two secondary arrow kinds below - live here (rather than
     // ControlsPanel) since they're purely about what this window draws, not engine behavior.

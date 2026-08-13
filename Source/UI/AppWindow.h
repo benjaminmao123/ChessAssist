@@ -22,10 +22,14 @@ public:
     void Restore();
 
     // Polls window/input events and starts a new ImGui frame. Call once per iteration before
-    // drawing any panels. Returns the main viewport dockspace's ID (an ImGuiID, kept as plain
-    // unsigned int so this header doesn't need to include imgui.h) for building a default dock
-    // layout via ImGui's DockBuilder API (see App::Run()).
-    [[nodiscard]] unsigned int BeginFrame();
+    // drawing a main menu bar or any panels.
+    void NewFrame();
+
+    // Sets up the main viewport dockspace, covering whatever space is left after a main menu
+    // bar (if one was drawn between NewFrame() and this call). Returns the dockspace's ID (an
+    // ImGuiID, kept as plain unsigned int so this header doesn't need to include imgui.h) for
+    // building a default dock layout via ImGui's DockBuilder API (see App::Run()).
+    [[nodiscard]] unsigned int SetupDockspace();
 
     // Renders ImGui draw data and swaps buffers. Call once per iteration after drawing.
     void EndFrame();

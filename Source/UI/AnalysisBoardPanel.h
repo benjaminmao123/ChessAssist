@@ -26,6 +26,11 @@ public:
     // Not thread-safe: call once per frame from the UI thread only.
     void Draw();
 
+    // Shows/hides the panel - bound to the window's own titlebar close button (via Draw()'s
+    // ImGui::Begin(..., &m_Open)) and to App's menu-bar checkbox for reopening it.
+    [[nodiscard]] bool IsOpen() const { return m_Open; }
+    void SetOpen(bool open) { m_Open = open; }
+
 private:
     // Restores m_ShowLookaheadArrow/m_ShowAlternateMoves from settings.ini, if it exists.
     // Called once from the constructor.
@@ -34,6 +39,9 @@ private:
     EngineInfoPanel* m_EnginePanel = nullptr;
     AnalysisBoardSession* m_Session = nullptr;
     const ChessPieceTextures* m_Textures = nullptr;
+
+    // See IsOpen()/SetOpen().
+    bool m_Open = true;
 
     ChessBoardWidget m_Widget;
 

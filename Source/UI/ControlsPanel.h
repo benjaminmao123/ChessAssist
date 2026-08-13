@@ -31,8 +31,14 @@ public:
     // write failure. Called once by App at shutdown.
     void SaveSettings() const;
 
-    // Not thread-safe: call once per frame from the UI thread only.
+    // Not thread-safe: call once per frame from the UI thread only. No-ops (doesn't even call
+    // ImGui::Begin()) while closed - see SetOpen().
     void Draw();
+
+    // Shows/hides the panel - bound to the window's own titlebar close button (via Draw()'s
+    // ImGui::Begin(..., &m_Open)) and to App's menu-bar checkbox for reopening it.
+    [[nodiscard]] bool IsOpen() const { return m_Open; }
+    void SetOpen(bool open) { m_Open = open; }
 
 private:
     // Restores every setting this panel owns from settings.ini, if it exists (a fresh install/
@@ -50,6 +56,9 @@ private:
 
     EngineController* m_Controller = nullptr;
     GameSession* m_GameSession = nullptr;
+
+    // See IsOpen()/SetOpen().
+    bool m_Open = true;
 
     ChessSite m_SelectedSite = ChessSite::ChessDotCom;
     bool m_AutoplayEnabled = false;

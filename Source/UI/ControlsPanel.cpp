@@ -122,6 +122,7 @@ void ControlsPanel::LoadSettings()
             std::snprintf(m_BookPathBuffer.data(), m_BookPathBuffer.size(), "%s", bookPath.c_str());
         m_OpeningBookEnabled = ini.Get<bool>("OpeningBook", "Enabled", static_cast<bool>(m_OpeningBookEnabled));
         m_BookSelectionModeIndex = std::clamp(ini.Get<int>("OpeningBook", "SelectionMode", static_cast<int>(m_BookSelectionModeIndex)), 0, IM_ARRAYSIZE(kBookSelectionModeNames) - 1);
+        m_Open = ini.Get<bool>("Window", "ControlsOpen", static_cast<bool>(m_Open));
     }
     catch (const std::exception& e)
     {
@@ -170,13 +171,17 @@ void ControlsPanel::SaveSettings() const
     SettingsIni::UpsertEntry(ini, "OpeningBook", "Enabled", m_OpeningBookEnabled);
     SettingsIni::UpsertEntry(ini, "OpeningBook", "Path", std::string(m_BookPathBuffer.data()));
     SettingsIni::UpsertEntry(ini, "OpeningBook", "SelectionMode", m_BookSelectionModeIndex);
+    SettingsIni::UpsertEntry(ini, "Window", "ControlsOpen", m_Open);
 
     SettingsIni::SaveMerged(path, ini, "SaveSettings");
 }
 
 void ControlsPanel::Draw()
 {
-    ImGui::Begin("Controls");
+    if (!m_Open)
+        return;
+
+    ImGui::Begin("Controls", &m_Open);
 
     ImGui::SeparatorText("Engine");
 

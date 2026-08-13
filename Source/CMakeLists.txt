@@ -107,7 +107,7 @@ set(UI_SOURCES
 # GLFW/OpenGL out of ChessAssistTests, which has no window/GL context to run against.
 add_executable(ChessAssist main.cpp App.h App.cpp ${UI_SOURCES})
 
-target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS} ${Stb_INCLUDE_DIR})
+target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS} ${Stb_INCLUDE_DIR} "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw OpenGL::GL)
 
 add_dependencies(ChessAssist build_stockfish)

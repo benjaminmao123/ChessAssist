@@ -258,16 +258,21 @@ void AppWindow::Restore()
         glfwRestoreWindow(m_Impl->Window);
 }
 
-unsigned int AppWindow::BeginFrame()
+void AppWindow::NewFrame()
 {
     glfwPollEvents();
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+}
 
+unsigned int AppWindow::SetupDockspace()
+{
     // Gives every ImGui::Begin() window a full-viewport area to dock into; the central
-    // node stays transparent so it doesn't paint over anything drawn behind it.
+    // node stays transparent so it doesn't paint over anything drawn behind it. Automatically
+    // sized to the viewport's work area, which a main menu bar drawn earlier this frame (see
+    // NewFrame()'s comment) already shrunk to make room for itself.
     return ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 }
 
