@@ -35,7 +35,7 @@ so far.
   `UCI_LimitStrength` and a matching search time/depth, instead of tuning them separately.
 - **Blitz mode** - caps every search to a short, fixed think time so autoplay can keep up with
   fast time controls.
-- **Premoves** *(experimental)* - while autoplay is on, replies instantly if the opponent plays
+- **Premoves** - while autoplay is on, replies instantly if the opponent plays
   what the last search already predicted, or falls back to a short capped-time search rather
   than guessing. See `GameSession::SetPremoveEnabled` for the full scheme.
 - **Accuracy metric** - per-move centipawn loss, using the same exponential-decay curve

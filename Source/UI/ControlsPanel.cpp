@@ -323,7 +323,7 @@ void ControlsPanel::Draw()
 
     // Experimental - see GameSession::SetPremoveEnabled. Only meaningful with autoplay on;
     // shown regardless so the setting isn't lost if autoplay gets toggled off and back on.
-    if (ImGuiUtils::CheckboxTextWrapped("##PremoveEnabled", &m_PremoveEnabled, "Enable premoves (experimental)"))
+    if (ImGuiUtils::CheckboxTextWrapped("##PremoveEnabled", &m_PremoveEnabled, "Enable premoves (autoplay only)"))
         m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
 
     ImGui::Separator();
