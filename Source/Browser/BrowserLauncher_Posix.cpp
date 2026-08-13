@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <spawn.h>
 #include <sys/wait.h>
