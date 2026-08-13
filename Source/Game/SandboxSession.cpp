@@ -84,6 +84,11 @@ bool SandboxSession::IsBlackAtBottom() const
     return m_LiveBlackAtBottom;
 }
 
+std::string SandboxSession::GetFen() const
+{
+    return ToFen(m_Current.Board, m_Current.SideToMove, m_Current.Rights, m_Current.EnPassantTarget);
+}
+
 std::optional<std::string> SandboxSession::GetSuggestedMove() const
 {
     std::scoped_lock lock(m_SuggestedMoveMutex);

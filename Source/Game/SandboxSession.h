@@ -47,6 +47,10 @@ public:
     [[nodiscard]] std::optional<int> GetCheckedKingSquare() const override;
     [[nodiscard]] bool IsBlackAtBottom() const override;
 
+    // The position currently displayed as FEN - the live position, or the hypothetical one
+    // reached after any moves played via PlayMove(). Mirrors AnalysisBoardSession::GetFen().
+    [[nodiscard]] std::string GetFen() const;
+
     // The sandbox engine's suggestion for the current hypothetical position - nullopt if
     // !IsActive() or no result has arrived yet.
     [[nodiscard]] std::optional<std::string> GetSuggestedMove() const;

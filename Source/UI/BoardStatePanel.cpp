@@ -76,6 +76,21 @@ void BoardStatePanel::Draw(const std::optional<std::string>& liveSuggestedMove, 
     ImGuiUtils::CheckboxTextWrapped("##ShowAlternateMoves", &m_ShowAlternateMoves, "Show alternate moves");
     ImGui::Separator();
 
+    // Current-position FEN - read-only but still selectable/copyable (Ctrl+C, or drag-select)
+    // since it's a real InputText rather than plain Text, plus an explicit Copy button. Same
+    // pattern as AnalysisBoardPanel's own FEN field. Recomputed fresh every frame (cheap - just
+    // a board scan), so it's always in sync, including while a sandbox line is active.
+    const std::string currentFen = m_Sandbox->GetFen();
+    char fenDisplayBuffer[128];
+    std::snprintf(fenDisplayBuffer, sizeof(fenDisplayBuffer), "%s", currentFen.c_str());
+    const float copyButtonWidth = ImGui::CalcTextSize("Copy FEN").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SetNextItemWidth(-(copyButtonWidth + ImGui::GetStyle().ItemSpacing.x));
+    ImGui::InputText("##CurrentFen", fenDisplayBuffer, sizeof(fenDisplayBuffer), ImGuiInputTextFlags_ReadOnly);
+    ImGui::SameLine();
+    if (ImGui::Button("Copy FEN"))
+        ImGui::SetClipboardText(currentFen.c_str());
+    ImGui::Separator();
+
     const bool sandboxActive = m_Sandbox->IsActive();
     EngineInfoPanel& activeEnginePanel = sandboxActive ? *m_SandboxEnginePanel : *m_LiveEnginePanel;
 
