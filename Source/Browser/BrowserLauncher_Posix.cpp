@@ -100,6 +100,13 @@ std::expected<void, BrowserError> BrowserLauncher::Launch(std::uint16_t port, co
     // Without this, Chrome's DevTools anti-DNS-rebinding check rejects the WebSocket upgrade
     // from any non-browser client with HTTP 403 - needed for a CDP client like this one to connect.
     std::string allowOriginsArg = "--remote-allow-origins=*";
+    // Chrome throttles occluded/minimized windows, which can stall the renderer's input
+    // hit-testing enough for CdpClient's Input.dispatchMouseEvent calls (used to play moves) to
+    // time out - these opt this instance out of that throttling so autoplay keeps working while
+    // the window isn't focused/visible.
+    std::string noBackgroundingOccludedArg = "--disable-backgrounding-occluded-windows";
+    std::string noRendererBackgroundingArg = "--disable-renderer-backgrounding";
+    std::string noBackgroundTimerThrottlingArg = "--disable-background-timer-throttling";
 
     std::vector<char*> argv;
     argv.push_back(executablePathStr.data());
@@ -108,6 +115,9 @@ std::expected<void, BrowserError> BrowserLauncher::Launch(std::uint16_t port, co
     argv.push_back(noFirstRunArg.data());
     argv.push_back(noDefaultBrowserArg.data());
     argv.push_back(allowOriginsArg.data());
+    argv.push_back(noBackgroundingOccludedArg.data());
+    argv.push_back(noRendererBackgroundingArg.data());
+    argv.push_back(noBackgroundTimerThrottlingArg.data());
 
     std::string urlArg = startUrl;
     if (!urlArg.empty())
