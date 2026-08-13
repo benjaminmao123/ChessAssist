@@ -39,6 +39,10 @@ constexpr int kPresetMaxMoveTimeMs = 2000;
 constexpr int kPresetMinDepth = 4;
 constexpr int kPresetMaxDepth = 18;
 
+// How long Poll() waits before re-requesting the opening move for a game still stuck at 0
+// moves - see m_LastInitialMoveAttempt's comment.
+constexpr std::chrono::seconds kInitialMoveRetryInterval{1};
+
 float NormalizedElo(int elo)
 {
     const float t = static_cast<float>(elo - GameSession::kMinElo) / static_cast<float>(GameSession::kMaxElo - GameSession::kMinElo);
@@ -153,7 +157,7 @@ bool GameSession::ConnectToSite(ChessSite site)
     m_Tracker.Reset();
     m_Connected = true;
     m_Desynced = false;
-    m_InitialMoveRequested = false;
+    m_LastInitialMoveAttempt = {};
     ++m_PositionGeneration;
     ResetAccuracy();
 
@@ -247,13 +251,20 @@ std::vector<std::string> GameSession::Poll()
     {
     case MoveListDiffKind::NoChange:
         // RequestEngineMove() below is normally triggered by the move list growing, which never
-        // fires for a freshly-connected game still at 0 moves - so seed it once here, the first
-        // time a poll finds the tracker still empty after connecting. (ResetToFreshGame seeds
-        // its own zero-move case immediately, so this is purely the fresh-connection fallback.)
-        if (!m_InitialMoveRequested && m_Tracker.GetMoves().empty())
+        // fires for a freshly-connected game still at 0 moves - so seed it here on a retry
+        // cooldown instead of just once (ResetToFreshGame seeds its own zero-move case
+        // immediately, so this is purely the fresh-connection fallback). Retrying matters: if
+        // autoplay's move silently fails to land on the site, the tracker stays stuck at 0 moves
+        // forever otherwise - see m_LastInitialMoveAttempt's comment.
+        if (m_Tracker.GetMoves().empty())
         {
-            LOG_INFO("Poll: still at the starting position after connecting - requesting an initial engine move");
-            RequestEngineMove(ShouldQuickVerify());
+            const auto now = std::chrono::steady_clock::now();
+            if (m_LastInitialMoveAttempt == std::chrono::steady_clock::time_point{} || now - m_LastInitialMoveAttempt >= kInitialMoveRetryInterval)
+            {
+                LOG_INFO("Poll: still at the starting position after connecting - requesting an initial engine move");
+                RequestEngineMove(ShouldQuickVerify());
+                m_LastInitialMoveAttempt = now;
+            }
         }
         return newMoves;
 
@@ -269,7 +280,7 @@ std::vector<std::string> GameSession::Poll()
         m_Rules.Reset();
         m_Tracker.Reset();
         m_Desynced = false;
-        m_InitialMoveRequested = false;
+        m_LastInitialMoveAttempt = {};
         ResetAccuracy();
         break;
 
@@ -698,7 +709,6 @@ void GameSession::RequestEngineMove(bool quickVerify)
     m_AlternateMoves.Clear();
 
     m_RequestedForSide = m_Tracker.GetSideToMove();
-    m_InitialMoveRequested = true;
 
     // Opening book: only ever intercepts a request for the tracked player's own turn - a request
     // to evaluate the opponent's position, or to score our last move for accuracy tracking,

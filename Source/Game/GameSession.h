@@ -273,11 +273,14 @@ private:
     // candidates (see m_Premove.Update()), so it's atomic unlike the plain members around it.
     std::atomic<std::uint64_t> m_PositionGeneration{0};
 
-    // Set once RequestEngineMove() has fired since the last ConnectToSite() - guards Poll()'s
-    // NoChange branch so it seeds exactly one engine request for the starting position (0 moves
-    // on the page, so the ordinary "newMoves non-empty" trigger never fires) without
-    // re-requesting on every later no-change tick.
-    bool m_InitialMoveRequested = false;
+    // Last time Poll()'s NoChange branch requested an engine move for the still-empty starting
+    // position (0 moves on the page, so the ordinary "newMoves non-empty" trigger never fires) -
+    // default-constructed (epoch) means "never". Re-requests on a cooldown rather than just once:
+    // autoplay's actual move-playing step (PlayMoveOnBoard) can silently fail to land on the site
+    // with no error (e.g. a mis-clicked drag), and a single one-shot request left the game stuck
+    // at 0 moves forever in that case, only recoverable by toggling autoplay off/on or manually
+    // moving a piece.
+    std::chrono::steady_clock::time_point m_LastInitialMoveAttempt{};
 
     // Written by Poll() (UI thread) from each extraction's orientation read, read by
     // OnEngineBestMove (engine reader thread) to infer which color the tracked player is on -
