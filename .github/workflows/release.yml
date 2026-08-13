@@ -42,7 +42,7 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 22
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev libgl1-mesa-dev autoconf autoconf-archive automake libtool
+          sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev libgl1-mesa-dev autoconf autoconf-archive automake libtool libltdl-dev
 
       # windows-latest already has MSYS2 at C:\msys64, so add the mingw toolchain to it
       # rather than having the setup-msys2 action try to install fresh there.
