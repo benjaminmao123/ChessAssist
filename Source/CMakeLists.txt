@@ -112,6 +112,17 @@ target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw Open
 
 add_dependencies(ChessAssist build_stockfish)
 
+# GUI subsystem on Windows - the in-app Log panel already shows everything spdlog logs, so the
+# separate console window Windows otherwise pops up alongside the GUI window is just noise.
+# WIN32_EXECUTABLE alone switches the CRT startup stub to one that expects WinMain(), which
+# main.cpp doesn't define (undefined symbol: WinMain) - the LINKER: option forces the entry
+# point back to the normal main()-based startup, portably across both the MSVC and
+# Clang+lld-link toolchains this project builds with.
+if (WIN32)
+    set_target_properties(ChessAssist PROPERTIES WIN32_EXECUTABLE ON)
+    target_link_options(ChessAssist PRIVATE "LINKER:/ENTRY:mainCRTStartup")
+endif()
+
 # ExecutablePathUtil::GetAssetsDirectory() resolves to <exe-dir>/Assets at runtime (e.g. for
 # AppWindow's bundled font) - keep that directory in sync with the source Assets/ tree on
 # every build rather than requiring a separate manual copy step.
