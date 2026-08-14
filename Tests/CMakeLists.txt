@@ -17,13 +17,16 @@ target_link_libraries(ChessAssistTests PRIVATE ChessAssistCore GTest::gtest_main
 
 add_dependencies(ChessAssistTests build_stockfish)
 
-# EngineControllerTests spawns the real Stockfish binary; EngineController looks for it next
-# to its own running executable, so copy it next to ChessAssistTests too (it otherwise only
-# ends up next to ChessAssist).
+# EngineControllerTests spawns the real Stockfish binary; EngineController looks for it via
+# ExecutablePathUtil::GetDefaultStockfishPath() (Assets/Engine/, relative to its own running
+# executable), so mirror that same layout next to ChessAssistTests too (it otherwise only ends
+# up next to ChessAssist).
 add_custom_command(TARGET ChessAssistTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:ChessAssistTests>/Assets/Engine"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE_DIR:ChessAssist>/stockfish${CMAKE_EXECUTABLE_SUFFIX}"
-        "$<TARGET_FILE_DIR:ChessAssistTests>/stockfish${CMAKE_EXECUTABLE_SUFFIX}"
+        "$<TARGET_FILE_DIR:ChessAssist>/Assets/Engine/stockfish${CMAKE_EXECUTABLE_SUFFIX}"
+        "$<TARGET_FILE_DIR:ChessAssistTests>/Assets/Engine/stockfish${CMAKE_EXECUTABLE_SUFFIX}"
 )
 
 # Local HTML fixtures for BrowserPipelineTests.

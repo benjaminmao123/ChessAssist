@@ -103,9 +103,26 @@ set(UI_SOURCES
     UI/ImguiUtils.h
 )
 
+# Embeds the app icon into ChessAssist.exe itself (Explorer/taskbar/shortcuts) - see
+# ChessAssist.rc.in's own comment. Windows-only; a .rc file compiled on Linux/macOS would just
+# be a no-op source file, so it's excluded there rather than left for the RC compiler to ignore.
+if (WIN32)
+    set(CHESSASSIST_ICON_PATH "${CMAKE_SOURCE_DIR}/Assets/Icons/window_icon.ico")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/ChessAssist.rc.in" "${CMAKE_CURRENT_BINARY_DIR}/ChessAssist.rc" @ONLY)
+    set(CHESSASSIST_ICON_RC "${CMAKE_CURRENT_BINARY_DIR}/ChessAssist.rc")
+endif()
+
+# Same idea on macOS, but Finder only shows custom icons for proper .app bundles - the .icns
+# below becomes Contents/Resources/window_icon.icns, referenced by MACOSX_BUNDLE_ICON_FILE.
+if (APPLE)
+    set(CHESSASSIST_ICON_ICNS "${CMAKE_SOURCE_DIR}/Assets/Icons/window_icon.icns")
+    set_source_files_properties(${CHESSASSIST_ICON_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+endif()
+
 # UI sources are linked only into the ChessAssist executable, not ChessAssistCore - keeps
 # GLFW/OpenGL out of ChessAssistTests, which has no window/GL context to run against.
-add_executable(ChessAssist main.cpp App.h App.cpp ${UI_SOURCES})
+# MACOSX_BUNDLE is a no-op outside Apple platforms, so it's always safe to pass.
+add_executable(ChessAssist MACOSX_BUNDLE main.cpp App.h App.cpp ${UI_SOURCES} ${CHESSASSIST_ICON_RC} ${CHESSASSIST_ICON_ICNS})
 
 target_include_directories(ChessAssist PRIVATE ${INI_CPP_INCLUDE_DIRS} ${Stb_INCLUDE_DIR} "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(ChessAssist PRIVATE ChessAssistCore imgui::imgui glfw OpenGL::GL)
@@ -121,6 +138,21 @@ add_dependencies(ChessAssist build_stockfish)
 if (WIN32)
     set_target_properties(ChessAssist PROPERTIES WIN32_EXECUTABLE ON)
     target_link_options(ChessAssist PRIVATE "LINKER:/ENTRY:mainCRTStartup")
+endif()
+
+# CMake auto-generates Contents/Info.plist from these MACOSX_BUNDLE_* properties - no custom
+# Info.plist template needed for just an icon + identity. CHESSASSIST_VERSION comes from the
+# root CMakeLists.txt (git describe); CFBundleVersion/CFBundleShortVersionString are meant to be
+# dotted numbers, but a non-numeric git-describe string (e.g. "abc1234-dirty") is harmless here
+# since this never goes through the App Store - Finder/Launchpad don't validate the format.
+if (APPLE)
+    set_target_properties(ChessAssist PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "ChessAssist"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.chessassist.ChessAssist"
+        MACOSX_BUNDLE_ICON_FILE "window_icon.icns"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${CHESSASSIST_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${CHESSASSIST_VERSION}"
+    )
 endif()
 
 # ExecutablePathUtil::GetAssetsDirectory() resolves to <exe-dir>/Assets at runtime (e.g. for

@@ -11,6 +11,16 @@ else()
     set(SF_ARCH "x86-64-avx2")
 endif()
 
+# Stockfish lands in Assets/Engine next to wherever the rest of Assets/ ends up (see
+# ExecutablePathUtil::GetDefaultStockfishPath()), rather than loose next to the executable - on
+# macOS specifically that's nested inside the .app bundle's Contents/MacOS, since ChessAssist
+# builds as a proper bundle there (see Source/CMakeLists.txt).
+if (APPLE)
+    set(SF_APP_DIR "${CMAKE_BINARY_DIR}/Source/ChessAssist.app/Contents/MacOS")
+else()
+    set(SF_APP_DIR "${CMAKE_BINARY_DIR}/Source")
+endif()
+
 if (WIN32)
     set(MSYS_BASH "C:/msys64/usr/bin/bash.exe")
     set(INTERNAL_EXE "${SF_VENDOR_DIR}/stockfish.exe")
@@ -19,9 +29,9 @@ if (WIN32)
     # generators (e.g. Visual Studio) - single-config Windows generators (e.g. Ninja) put
     # ChessAssist.exe directly under Source/ with no per-config subfolder.
     if (CMAKE_CONFIGURATION_TYPES)
-        set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/$<CONFIG>/stockfish.exe")
+        set(FINAL_EXE "${SF_APP_DIR}/$<CONFIG>/Assets/Engine/stockfish.exe")
     else()
-        set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/stockfish.exe")
+        set(FINAL_EXE "${SF_APP_DIR}/Assets/Engine/stockfish.exe")
     endif()
 
     # 2. Command to run the official Makefile (Outputs stockfish.exe)
@@ -32,17 +42,21 @@ if (WIN32)
         COMMENT "Compiling Stockfish using its official Makefile at ${SF_VENDOR_DIR}..."
     )
 
-    # 3. Command to copy the compiled binary to the CMake output directory
+    # 3. Command to copy the compiled binary to the CMake output directory - make_directory
+    # first since Assets/Engine doesn't otherwise get created until ChessAssist's own
+    # POST_BUILD Assets copy runs, which is after this (build_stockfish is a dependency of
+    # ChessAssist, so it runs first).
     add_custom_command(
         OUTPUT "${FINAL_EXE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SF_APP_DIR}/Assets/Engine"
         COMMAND ${CMAKE_COMMAND} -E copy "${INTERNAL_EXE}" "${FINAL_EXE}"
         DEPENDS "${INTERNAL_EXE}"
         COMMENT "Copying Stockfish executable to output directory at ${FINAL_EXE}..."
     )
 elseif (LINUX OR APPLE)
     set(INTERNAL_EXE "${SF_VENDOR_DIR}/stockfish")
-    set(FINAL_EXE "${CMAKE_BINARY_DIR}/Source/stockfish")
-    
+    set(FINAL_EXE "${SF_APP_DIR}/Assets/Engine/stockfish")
+
     # 2. Command to run the official Makefile (Outputs stockfish)
     add_custom_command(
         OUTPUT "${INTERNAL_EXE}"
@@ -51,15 +65,17 @@ elseif (LINUX OR APPLE)
         COMMENT "Compiling Stockfish using its official Makefile at ${SF_VENDOR_DIR}..."
     )
 
-    # 3. Command to copy the compiled binary to the CMake output directory
+    # 3. Command to copy the compiled binary to the CMake output directory - see the Windows
+    # branch's comment on why make_directory runs first.
     add_custom_command(
         OUTPUT "${FINAL_EXE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SF_APP_DIR}/Assets/Engine"
         COMMAND ${CMAKE_COMMAND} -E copy "${INTERNAL_EXE}" "${FINAL_EXE}"
         DEPENDS "${INTERNAL_EXE}"
         COMMENT "Copying Stockfish executable to output directory at ${FINAL_EXE}..."
     )
 else()
     message(FATAL_ERROR "Unsupported platform for Stockfish compilation.")
-endif() 
+endif()
 # 4. Tie the commands to a build target (Now matching FINAL_EXE perfectly)
 add_custom_target(build_stockfish ALL DEPENDS "${FINAL_EXE}")

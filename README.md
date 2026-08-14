@@ -112,12 +112,16 @@ Swap in whichever preset matches your platform: `windows-clang-release`,
 `macos-clang-debug`/`-release`.
 
 This builds Stockfish from `Vendor/stockfish` as part of the build, and copies both the
-resulting engine binary and `Assets/` next to the built executable.
+resulting engine binary (into `Assets/Engine/`) and the rest of `Assets/` next to the built
+executable - on macOS specifically, that's inside `ChessAssist.app`, since it builds as a
+proper bundle there (icon, `Info.plist`, everything) rather than a bare binary.
 
 ### Running
 
 ```sh
-out/build/windows-clang-debug/Source/ChessAssist.exe
+out/build/windows-clang-debug/Source/ChessAssist.exe   # Windows
+out/build/linux-clang-debug/Source/ChessAssist          # Linux
+open out/build/macos-clang-debug/Source/ChessAssist.app # macOS
 ```
 
 The app launches its own Chrome instance pointed at chess.com/Lichess. Open a game, hit Connect

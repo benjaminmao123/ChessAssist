@@ -100,17 +100,30 @@ jobs:
           Copy-Item "$out/Assets" $dist -Recurse
           Compress-Archive -Path "$dist/*" -DestinationPath "ChessAssist-${{ github.ref_name }}-${{ matrix.asset_name }}.zip"
 
-      - name: Package (Linux/macOS)
-        if: runner.os == 'Linux' || runner.os == 'macOS'
+      # Stockfish now lands in Assets/Engine (see Vendor/CMakeLists.txt) rather than loose next
+      # to the binary, so the Assets copy below already carries it - no separate stockfish copy
+      # needed.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: |
           out="out/build/${{ matrix.preset }}/Source"
           dist="dist"
           mkdir -p "$dist"
           cp "$out/ChessAssist" "$dist/"
-          cp "$out/stockfish" "$dist/"
           cp -r "$out/Assets" "$dist/"
           cp "$out"/*.so* "$dist/" 2>/dev/null || true
-          cp "$out"/*.dylib "$dist/" 2>/dev/null || true
+          tar -czf "ChessAssist-${{ github.ref_name }}-${{ matrix.asset_name }}.tar.gz" -C "$dist" .
+
+      # ChessAssist builds as a proper .app bundle on macOS (see Source/CMakeLists.txt) - it
+      # already carries the binary, Stockfish, Assets, and the .icns icon inside itself, so
+      # packaging is just archiving the whole bundle rather than assembling loose files.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          out="out/build/${{ matrix.preset }}/Source"
+          dist="dist"
+          mkdir -p "$dist"
+          cp -r "$out/ChessAssist.app" "$dist/"
           tar -czf "ChessAssist-${{ github.ref_name }}-${{ matrix.asset_name }}.tar.gz" -C "$dist" .
 
       - name: Upload release assets

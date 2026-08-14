@@ -61,7 +61,7 @@ constexpr const char* kStockfishExeName = "stockfish";
 
 std::filesystem::path GetDefaultStockfishPath()
 {
-    return GetCurrentExecutablePath().parent_path() / kStockfishExeName;
+    return GetAssetsDirectory() / "Engine" / kStockfishExeName;
 }
 
 std::filesystem::path GetAssetsDirectory()
