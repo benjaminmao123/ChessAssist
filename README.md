@@ -44,6 +44,31 @@ so far.
 - **Modern dark theme** with a bundled Roboto Medium font and dockable panels (Controls, Tracked
   Board + engine info, Log).
 
+## Running ChessAssist
+
+The easiest way is to grab a pre-built copy from the
+[Releases page](https://github.com/benjaminmao123/ChessAssist/releases/latest) - no need to
+build from source. You'll also need [Google Chrome](https://www.google.com/chrome/) installed
+either way, since the app launches and drives its own dedicated Chrome instance.
+
+- **Windows** - download `ChessAssist-<version>-windows-x64.zip`, extract it anywhere, and run
+  `ChessAssist.exe`. Windows SmartScreen may warn about an unrecognized publisher (the binary
+  isn't code-signed) - click "More info" then "Run anyway".
+- **Linux** - download `ChessAssist-<version>-linux-x64.tar.gz`, extract it, then:
+  ```sh
+  chmod +x ChessAssist
+  ./ChessAssist
+  ```
+- **macOS** - download `ChessAssist-<version>-macos-arm64.tar.gz` (Apple Silicon only - there's
+  no Intel build), extract it, then right-click `ChessAssist.app` and choose Open. That's needed
+  once, since the app isn't notarized; a plain double-click gets blocked by Gatekeeper.
+
+Once it's open: click **Launch Browser** in the Controls panel, log in and open a chess.com or
+Lichess game in the window that opens, then click **Connect**. From there you can configure
+Elo/Blitz/Premove/Autoplay as you like - see [Features](#features) above for what each does.
+
+Prefer to build it yourself instead? See [Building](#building) below.
+
 ## Repository layout
 
 ```
@@ -116,7 +141,7 @@ resulting engine binary (into `Assets/Engine/`) and the rest of `Assets/` next t
 executable - on macOS specifically, that's inside `ChessAssist.app`, since it builds as a
 proper bundle there (icon, `Info.plist`, everything) rather than a bare binary.
 
-### Running
+### Running your build
 
 ```sh
 out/build/windows-clang-debug/Source/ChessAssist.exe   # Windows
@@ -124,8 +149,7 @@ out/build/linux-clang-debug/Source/ChessAssist          # Linux
 open out/build/macos-clang-debug/Source/ChessAssist.app # macOS
 ```
 
-The app launches its own Chrome instance pointed at chess.com/Lichess. Open a game, hit Connect
-in the Controls panel, then configure Elo/Blitz/Premove/Autoplay as you like.
+See [Running ChessAssist](#running-chessassist) above for what to do once it's open.
 
 ### Tests
 
