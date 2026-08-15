@@ -59,9 +59,14 @@ std::filesystem::path GetCurrentExecutablePath()
 constexpr const char* kStockfishExeName = "stockfish";
 #endif
 
-std::filesystem::path GetDefaultStockfishPath()
+std::filesystem::path GetDefaultEnginePath()
 {
     return GetAssetsDirectory() / "Engine" / kStockfishExeName;
+}
+
+std::filesystem::path GetDefaultOpeningBookPath()
+{
+    return GetAssetsDirectory() / "Opening Books" / "komodo.bin";
 }
 
 std::filesystem::path GetAssetsDirectory()

@@ -16,7 +16,7 @@ EngineController::~EngineController()
 
 std::expected<void, EngineError> EngineController::Start(std::optional<std::filesystem::path> enginePath)
 {
-    std::filesystem::path path = enginePath.value_or(ExecutablePathUtil::GetDefaultStockfishPath());
+    std::filesystem::path path = enginePath.value_or(ExecutablePathUtil::GetDefaultEnginePath());
 
     if (!std::filesystem::exists(path))
         return std::unexpected(EngineError{EngineErrorCode::ExecutableNotFound, "Stockfish executable not found at " + path.string()});

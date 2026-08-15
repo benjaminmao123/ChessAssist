@@ -41,13 +41,14 @@ std::string TimestampedLogFilename()
 App::App()
     : m_SandboxSession(m_SandboxController), m_BoardStatePanel(m_EnginePanel, m_SandboxEnginePanel, m_SandboxSession, m_PieceTextures), m_AnalysisSession(m_AnalysisController), m_AnalysisBoardPanel(m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures), m_GameSession(m_Controller), m_ControlsPanel(m_Controller, m_GameSession)
 {
-    InitLogging();
 }
 
 void App::InitLogging()
 {
-    // Attached before anything else runs so every log line (including any early startup
-    // failures below) makes it into the in-app Log panel, not just the console.
+    // Called from m_LoggingInitialized's default member initializer (see App.h) rather than
+    // here in the constructor body, so every log line - including any that happen while later
+    // members below are still being constructed - makes it into the in-app Log panel and the
+    // persisted file, not just spdlog's default console sink.
     spdlog::default_logger()->sinks().push_back(std::make_shared<ImGuiLogSinkMt>(m_LogPanel));
 
     // One log file per run, next to the executable, so a session can be inspected or shared
@@ -190,6 +191,9 @@ int App::Run()
         }
 
         m_GameSession.Tick();
+        // Unconditional, like m_GameSession.Tick() above, so a play-vs-engine game keeps going
+        // even while the Analysis Board panel itself isn't open.
+        m_AnalysisSession.Tick();
 
         m_Window.EndFrame();
     }

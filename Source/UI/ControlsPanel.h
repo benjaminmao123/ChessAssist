@@ -3,6 +3,7 @@
 #include "Browser/ChessSiteAdapter.h"
 
 #include <array>
+#include <string>
 #include <string_view>
 
 class EngineController;
@@ -41,11 +42,18 @@ public:
     void SetOpen(bool open) { m_Open = open; }
 
 private:
-    // Restores every setting this panel owns from settings.ini, if it exists (a fresh install/
-    // deleted file just keeps the in-class defaults). Called once from the constructor, before
-    // the engine exists - ApplyEloTarget's EngineController half is a no-op until RestartEngine()
-    // (called by App right after construction) re-applies it once the engine actually starts.
+    // Restores every setting this panel owns from settings.ini if it exists, then mirrors it
+    // all into GameSession regardless (a fresh install with no file yet still configures
+    // GameSession from the constructor's own bundled defaults - e.g. the opening book - instead
+    // of leaving it unconfigured until the user touches every widget by hand). Called once from
+    // the constructor, before the engine exists - ApplyEloTarget's EngineController half is a
+    // no-op until RestartEngine() (called by App right after construction) re-applies it once
+    // the engine actually starts.
     void LoadSettings();
+
+    // The settings.ini-reading half of LoadSettings() - see its own comment for why it's split
+    // out.
+    void LoadSettingsFile(const std::string& path);
 
 
     // The single "Elo" control spans two independent things that both need reapplying whenever
@@ -84,9 +92,11 @@ private:
     // edit it and click Restart Engine to point at a different UCI-compatible executable.
     std::array<char, 512> m_EngineExecutablePathBuffer{};
 
-    // Opening book (see GameSession::LoadOpeningBook/SetOpeningBookEnabled) - no bundled
-    // default, unlike the engine path, so the buffer starts empty until the user browses to
-    // one or a previous path is restored from settings.ini.
+    // Opening book (see GameSession::LoadOpeningBook/SetOpeningBookEnabled) - pre-filled with
+    // the bundled Komodo book (see ExecutablePathUtil::GetDefaultOpeningBookPath()), same
+    // pattern as m_EngineExecutablePathBuffer above; a persisted path from settings.ini takes
+    // precedence if there is one. "Use opening book" itself still defaults to off below, so a
+    // fresh install has a book ready to go without it playing book moves unasked.
     bool m_OpeningBookEnabled = false;
     std::array<char, 512> m_BookPathBuffer{};
     // Index into kBookSelectionModeNames in ControlsPanel.cpp; 1 = weighted random (default).

@@ -35,8 +35,11 @@ constexpr const char* kBookSelectionModeNames[] = {"Always best", "Weighted rand
 ControlsPanel::ControlsPanel(EngineController& controller, GameSession& gameSession)
     : m_Controller(&controller), m_GameSession(&gameSession)
 {
-    const std::string defaultEnginePath = ExecutablePathUtil::GetDefaultStockfishPath().string();
+    const std::string defaultEnginePath = ExecutablePathUtil::GetDefaultEnginePath().string();
     std::snprintf(m_EngineExecutablePathBuffer.data(), m_EngineExecutablePathBuffer.size(), "%s", defaultEnginePath.c_str());
+
+    const std::string defaultBookPath = ExecutablePathUtil::GetDefaultOpeningBookPath().string();
+    std::snprintf(m_BookPathBuffer.data(), m_BookPathBuffer.size(), "%s", defaultBookPath.c_str());
 
     LoadSettings();
 }
@@ -53,7 +56,7 @@ void ControlsPanel::RestartEngine(std::string_view enginePath)
         return;
     }
 
-    LOG_INFO("Engine started from {}", path ? path->string() : "bundled default (" + ExecutablePathUtil::GetDefaultStockfishPath().string() + ")");
+    LOG_INFO("Engine started from {}", path ? path->string() : "bundled default (" + ExecutablePathUtil::GetDefaultEnginePath().string() + ")");
 
     // A freshly spawned engine process starts with every UCI option at its default (unlimited
     // strength) - reapply whatever Elo target is currently configured so a restart doesn't
@@ -89,9 +92,33 @@ std::string_view ControlsPanel::GetEnginePath() const
 void ControlsPanel::LoadSettings()
 {
     const std::string path = ExecutablePathUtil::GetSettingsFilePath().string();
-    if (!std::filesystem::exists(path))
-        return;
+    if (std::filesystem::exists(path))
+    {
+        LoadSettingsFile(path);
+    }
 
+    // Mirror every loaded value (or, on a fresh install with no settings.ini yet, whatever the
+    // constructor's own bundled defaults left in these members - e.g. the opening book) into
+    // GameSession, the same way each widget's own on-change handler would in Draw(). The
+    // Elo/EngineController half (UCI_Elo etc.) is deliberately NOT done here since the engine
+    // hasn't started yet - App's startup RestartEngine() call covers that via its own
+    // ApplyEloTarget(). Loading the book is pure file parsing with no process dependency, so it
+    // can happen right here instead.
+    m_GameSession->SetBlitzMode(m_BlitzMode);
+    m_GameSession->SetAutoplayEnabled(m_AutoplayEnabled);
+    m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
+    m_GameSession->SetMoveDelay(m_MoveDelayMs, m_RandomizeMoveDelay ? m_MoveDelayMaxMs : m_MoveDelayMs);
+    m_GameSession->SetBookSelectionMode(m_BookSelectionModeIndex == 0 ? PolyglotBook::SelectionMode::HighestWeight : PolyglotBook::SelectionMode::WeightedRandom);
+    if (m_BookPathBuffer[0] != '\0' && !m_GameSession->LoadOpeningBook(m_BookPathBuffer.data()))
+        LOG_ERROR("Failed to load opening book from {}", m_BookPathBuffer.data());
+    m_GameSession->SetOpeningBookEnabled(m_OpeningBookEnabled);
+}
+
+// Reads settings.ini itself, isolated from LoadSettings()'s unconditional GameSession mirroring
+// below so a fresh install (no file yet) still configures GameSession from the in-class/
+// constructor defaults instead of leaving it unconfigured until the user touches every widget.
+void ControlsPanel::LoadSettingsFile(const std::string& path)
+{
     try
     {
         const inih::INIReader ini(path);
@@ -123,28 +150,13 @@ void ControlsPanel::LoadSettings()
         m_OpeningBookEnabled = ini.Get<bool>("OpeningBook", "Enabled", static_cast<bool>(m_OpeningBookEnabled));
         m_BookSelectionModeIndex = std::clamp(ini.Get<int>("OpeningBook", "SelectionMode", static_cast<int>(m_BookSelectionModeIndex)), 0, IM_ARRAYSIZE(kBookSelectionModeNames) - 1);
         m_Open = ini.Get<bool>("Window", "ControlsOpen", static_cast<bool>(m_Open));
+
+        LOG_INFO("LoadSettings: restored settings from {}", path);
     }
     catch (const std::exception& e)
     {
         LOG_WARN("LoadSettings: failed to read '{}': {} - using defaults", path, e.what());
-        return;
     }
-
-    // Mirror every loaded value into GameSession, the same way each widget's own on-change
-    // handler would in Draw(). The Elo/EngineController half (UCI_Elo etc.) is deliberately NOT
-    // done here since the engine hasn't started yet - App's startup RestartEngine() call covers
-    // that via its own ApplyEloTarget(). Loading the book is pure file parsing with no process
-    // dependency, so it can happen right here instead.
-    m_GameSession->SetBlitzMode(m_BlitzMode);
-    m_GameSession->SetAutoplayEnabled(m_AutoplayEnabled);
-    m_GameSession->SetPremoveEnabled(m_PremoveEnabled);
-    m_GameSession->SetMoveDelay(m_MoveDelayMs, m_RandomizeMoveDelay ? m_MoveDelayMaxMs : m_MoveDelayMs);
-    m_GameSession->SetBookSelectionMode(m_BookSelectionModeIndex == 0 ? PolyglotBook::SelectionMode::HighestWeight : PolyglotBook::SelectionMode::WeightedRandom);
-    if (m_BookPathBuffer[0] != '\0')
-        m_GameSession->LoadOpeningBook(m_BookPathBuffer.data());
-    m_GameSession->SetOpeningBookEnabled(m_OpeningBookEnabled);
-
-    LOG_INFO("LoadSettings: restored settings from {}", path);
 }
 
 void ControlsPanel::SaveSettings() const

@@ -57,6 +57,15 @@ private:
     // m_AnalysisBoardPanel needs m_AnalysisEnginePanel, m_AnalysisSession, m_PieceTextures;
     // m_GameSession needs m_Controller; m_ControlsPanel needs m_Controller and m_GameSession.
     LogPanel m_LogPanel;
+
+    // Runs InitLogging() as soon as m_LogPanel exists, via this member's own default
+    // initializer rather than the constructor body - the body only runs after every member
+    // below (several of which log during their own construction, e.g. ControlsPanel loading the
+    // opening book) is already built, which would silently drop those lines from the file/panel
+    // sinks (they'd still hit spdlog's default console sink, just not persist anywhere the user
+    // actually sees).
+    bool m_LoggingInitialized = (InitLogging(), true);
+
     AppWindow m_Window;
 
     // Loaded once (see Run()) and shared by both boards below - loading the same 13 PNGs twice

@@ -12,7 +12,7 @@ else()
 endif()
 
 # Stockfish lands in Assets/Engine next to wherever the rest of Assets/ ends up (see
-# ExecutablePathUtil::GetDefaultStockfishPath()), rather than loose next to the executable - on
+# ExecutablePathUtil::GetDefaultEnginePath()), rather than loose next to the executable - on
 # macOS specifically that's nested inside the .app bundle's Contents/MacOS, since ChessAssist
 # builds as a proper bundle there (see Source/CMakeLists.txt).
 if (APPLE)

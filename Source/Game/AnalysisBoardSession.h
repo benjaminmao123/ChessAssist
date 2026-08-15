@@ -109,6 +109,35 @@ public:
     // way SandboxSession::OnEngineInfo does.
     void OnEngineInfo(const SearchInfo& info);
 
+    // Starts a game against the engine from the current position: from now until
+    // StopPlayingVsEngine() is called, whenever it becomes engineSide's turn the engine's reply
+    // is auto-played instead of just suggested. If it's already engineSide's turn, re-requests
+    // analysis immediately - mirrors GameSession::SetAutoplayEnabled's own re-request, since
+    // otherwise this would only take effect once *another* position change fires a fresh search,
+    // and a human move that flips the turn to the engine isn't coming. Call from the UI thread
+    // only.
+    void StartPlayingVsEngine(PieceColor engineSide);
+
+    // Turns play-vs-engine back off - the position stays exactly where it is and can still be
+    // played out by hand, the engine just stops auto-replying. Safe to call at any time,
+    // including mid-search: the in-flight search still finishes and updates GetSuggestedMove()
+    // as normal, it just no longer gets auto-played. Call from the UI thread only.
+    void StopPlayingVsEngine();
+
+    [[nodiscard]] bool IsPlayingVsEngine() const;
+
+    // Which side the engine is playing while IsPlayingVsEngine() - meaningless otherwise. Lets
+    // the panel show which side is engine-controlled and disable the wrong "Play as ..." button.
+    [[nodiscard]] PieceColor GetEngineSide() const;
+
+    // Applies a queued engine reply from play-vs-engine mode, if OnEngineBestMove queued one and
+    // it's still legal in the current position (see m_PendingEngineMove's comment - a stale
+    // queued move, e.g. from stepping through history while a search was in flight, stops
+    // play-vs-engine instead of being force-applied). No-op unless IsPlayingVsEngine(). Call once
+    // per frame from the UI thread - App::Run() does this unconditionally, like
+    // GameSession::Tick(), so play continues even while the Analysis Board panel isn't drawn.
+    void Tick();
+
 private:
     void RequestAnalysis();
     void RebuildCurrent();
@@ -143,4 +172,14 @@ private:
     };
     mutable std::mutex m_LookaheadMutex;
     std::optional<LookaheadCandidate> m_LookaheadCandidate;  // guarded by m_LookaheadMutex
+
+    std::atomic<bool> m_PlayVsEngineActive{false};
+    std::atomic<PieceColor> m_EngineSide{PieceColor::White};  // only meaningful while m_PlayVsEngineActive
+
+    // Queued by OnEngineBestMove (reader thread) when a search resolves for m_EngineSide's turn
+    // while play-vs-engine is active; applied by Tick() (UI thread) - m_Current/m_History are
+    // otherwise UI-thread-only, so this is the same queue-then-apply split GameSession uses for
+    // its own autoplay (m_PendingAutoMove).
+    std::mutex m_PendingEngineMoveMutex;
+    std::optional<std::string> m_PendingEngineMove;  // guarded by m_PendingEngineMoveMutex
 };

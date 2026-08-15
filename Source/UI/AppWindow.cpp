@@ -33,10 +33,10 @@ void GlfwErrorCallback(int error, const char* description)
     LOG_ERROR("GLFW error {}: {}", error, description);
 }
 
-// Sets the window's title bar/taskbar/Alt-Tab icon from Assets/Icons/window_icon.png - GLFW
-// copies the pixel data internally, so the source buffer only needs to outlive this call.
-// Silently leaves the platform default icon in place (just logs) if the file is missing or
-// fails to decode - not worth failing startup over.
+// // Sets the window's title bar/taskbar/Alt-Tab icon from Assets/Icons/window_icon.png - GLFW
+// // copies the pixel data internally, so the source buffer only needs to outlive this call.
+// // Silently leaves the platform default icon in place (just logs) if the file is missing or
+// // fails to decode - not worth failing startup over.
 void SetWindowIcon(GLFWwindow* window)
 {
     const std::filesystem::path iconPath = ExecutablePathUtil::GetAssetsDirectory() / "Icons" / "window_icon.png";
@@ -193,6 +193,14 @@ bool AppWindow::Init(int width, int height, const std::string& title)
     }
 
     SetWindowIcon(m_Impl->Window);
+
+    // Pumps the icon-related window messages right away, before any of the slower init work
+    // below (font loading, and especially App::Run()'s several EngineController::Start() calls,
+    // each spawning a Stockfish process and doing a synchronous UCI handshake) - otherwise the
+    // taskbar can register this window's button using its pre-icon default well before the
+    // first message pump ever happens (previously not until the main loop's first frame), and
+    // never picks up the icon change afterward.
+    glfwPollEvents();
 
     glfwMakeContextCurrent(m_Impl->Window);
     glfwSwapInterval(1);  // vsync

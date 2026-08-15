@@ -6,7 +6,14 @@
 namespace ExecutablePathUtil
 {
 std::filesystem::path GetCurrentExecutablePath();
-std::filesystem::path GetDefaultStockfishPath();
+// Named for what it's for, not what it currently is - the bundled engine happens to be
+// Stockfish today, but that could change without this API needing to.
+std::filesystem::path GetDefaultEnginePath();
+
+// The bundled Komodo Polyglot book, at Assets/Opening Books/komodo.bin - ControlsPanel
+// pre-fills its book path field with this so a fresh install already has one available.
+std::filesystem::path GetDefaultOpeningBookPath();
+
 std::filesystem::path GetAssetsDirectory();
 std::filesystem::path GetLogsDirectory();
 std::filesystem::path GetBrowserProfileDirectory();

@@ -3,6 +3,7 @@
 #include "Chess/ChessBoardOps.h"
 #include "Chess/FenWriter.h"
 #include "Engine/EngineController.h"
+#include "Logging/Log.h"
 
 namespace
 {
@@ -197,8 +198,16 @@ std::optional<std::string> AnalysisBoardSession::GetLookaheadMove() const
 
 void AnalysisBoardSession::OnEngineBestMove(const BestMoveResult& result)
 {
-    std::scoped_lock lock(m_SuggestedMoveMutex);
-    m_SuggestedMove = result.BestMove;
+    {
+        std::scoped_lock lock(m_SuggestedMoveMutex);
+        m_SuggestedMove = result.BestMove;
+    }
+
+    if (m_PlayVsEngineActive.load() && m_RequestedSide.load() == m_EngineSide.load())
+    {
+        std::scoped_lock lock(m_PendingEngineMoveMutex);
+        m_PendingEngineMove = result.BestMove;
+    }
 }
 
 void AnalysisBoardSession::OnEngineInfo(const SearchInfo& info)
@@ -217,6 +226,58 @@ void AnalysisBoardSession::OnEngineInfo(const SearchInfo& info)
         std::scoped_lock lock(m_LookaheadMutex);
         m_LookaheadCandidate = LookaheadCandidate{info.Pv[0], info.Pv[1]};
     }
+}
+
+void AnalysisBoardSession::StartPlayingVsEngine(PieceColor engineSide)
+{
+    m_EngineSide = engineSide;
+    m_PlayVsEngineActive = true;
+
+    if (m_Current.SideToMove == engineSide)
+        RequestAnalysis();
+}
+
+void AnalysisBoardSession::StopPlayingVsEngine()
+{
+    m_PlayVsEngineActive = false;
+
+    std::scoped_lock lock(m_PendingEngineMoveMutex);
+    m_PendingEngineMove.reset();
+}
+
+bool AnalysisBoardSession::IsPlayingVsEngine() const
+{
+    return m_PlayVsEngineActive.load();
+}
+
+PieceColor AnalysisBoardSession::GetEngineSide() const
+{
+    return m_EngineSide.load();
+}
+
+void AnalysisBoardSession::Tick()
+{
+    if (!m_PlayVsEngineActive.load())
+        return;
+
+    std::optional<std::string> move;
+    {
+        std::scoped_lock lock(m_PendingEngineMoveMutex);
+        move = std::move(m_PendingEngineMove);
+        m_PendingEngineMove.reset();
+    }
+    if (!move)
+        return;
+
+    const std::optional<MoveGenerator::LegalMove> legal = MoveGenerator::FindLegalMove(m_Current, *move);
+    if (!legal)
+    {
+        LOG_ERROR("AnalysisBoardSession::Tick: queued engine move '{}' is no longer legal in the current position (did the position change while it was searching?) - stopping play-vs-engine", *move);
+        m_PlayVsEngineActive = false;
+        return;
+    }
+
+    PlayMove(*legal);
 }
 
 void AnalysisBoardSession::RequestAnalysis()

@@ -18,7 +18,7 @@ target_link_libraries(ChessAssistTests PRIVATE ChessAssistCore GTest::gtest_main
 add_dependencies(ChessAssistTests build_stockfish)
 
 # EngineControllerTests spawns the real Stockfish binary; EngineController looks for it via
-# ExecutablePathUtil::GetDefaultStockfishPath() (Assets/Engine/, relative to its own running
+# ExecutablePathUtil::GetDefaultEnginePath() (Assets/Engine/, relative to its own running
 # executable), so mirror that same layout next to ChessAssistTests too (it otherwise only ends
 # up next to ChessAssist).
 add_custom_command(TARGET ChessAssistTests POST_BUILD

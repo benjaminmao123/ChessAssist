@@ -95,6 +95,27 @@ void AnalysisBoardPanel::Draw()
     ImGui::SameLine();
     ImGui::Text("Move %zu / %zu", m_Session->GetCursor(), m_Session->HistoryLength());
 
+    // Play-vs-engine: while active, the engine auto-replies whenever it becomes its side's turn
+    // (see AnalysisBoardSession::Tick()) until Stop is pressed - the game otherwise plays out
+    // exactly like normal analysis-board use (steppable, FEN-loadable, etc.).
+    if (m_Session->IsPlayingVsEngine())
+    {
+        ImGui::Text("Playing vs engine - engine plays %s", m_Session->GetEngineSide() == PieceColor::White ? "White" : "Black");
+        ImGui::SameLine();
+        if (ImGui::Button("Stop"))
+            m_Session->StopPlayingVsEngine();
+    }
+    else
+    {
+        if (ImGui::Button("Play as White"))
+            m_Session->StartPlayingVsEngine(PieceColor::Black);
+        ImGui::SameLine();
+        if (ImGui::Button("Play as Black"))
+            m_Session->StartPlayingVsEngine(PieceColor::White);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Engine plays the other side from the current position and auto-replies from here on - Stop at any time");
+    }
+
     // Arrow-key navigation - gated on this window having focus (so it doesn't fire while e.g.
     // the Controls panel is focused) and on not currently capturing text input (so it doesn't
     // fire while typing into the FEN field below), same pattern ControlsPanel's own manual-play
