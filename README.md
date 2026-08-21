@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/benjaminmao123/ChessAssist/actions/workflows/ci.yml/badge.svg)](https://github.com/benjaminmao123/ChessAssist/actions/workflows/ci.yml)
 
+<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/1fac6dd4-0098-418d-8850-645d12362d99" />
+
 A desktop app for Windows, Linux, and macOS that watches a live chess.com or Lichess game and
 overlays real-time engine analysis on top of it.
 
