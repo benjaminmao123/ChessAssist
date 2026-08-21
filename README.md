@@ -21,8 +21,8 @@ so far.
 
 - **Live game tracking** - connects to an already-open chess.com or Lichess tab over the Chrome
   DevTools Protocol and reads the move list straight out of the page. No screenshotting or OCR.
-- **Engine analysis** - depth, score, nodes/nps, and the principal variation from a bundled
-  Stockfish, always shown from White's perspective regardless of whose turn is being searched.
+- **Engine analysis** - depth, score, nodes/nps, and the principal variation from a bundled engine,
+  with the ability to specify your own custom engine.
 - **Board overlay** - a best-move arrow (turns red with an on-board "mate in N" banner when one's
   found), source/destination highlights, an eval bar that flips with board orientation, and a
   highlight on whichever king is in check.
