@@ -7,8 +7,8 @@
 A desktop app for Windows, Linux, and macOS that watches a live chess.com or Lichess game and
 overlays real-time engine analysis on top of it.
 
-It launches its own Chrome window, reads the live position straight from the page, and feeds it
-to a bundled Stockfish. You get depth, score, the principal variation, an eval bar, and a
+It launches its own Chrome window, reads the live position straight from the page, and feeds it an engine of your choice. 
+You get depth, score, the principal variation, an eval bar, and a
 best-move arrow drawn right on the board - plus a chess.com-style accuracy score for the game
 so far.
 
