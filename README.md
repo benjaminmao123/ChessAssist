@@ -42,9 +42,6 @@ so far.
   than guessing. See `GameSession::SetPremoveEnabled` for the full scheme.
 - **Accuracy metric** - per-move centipawn loss, using the same exponential-decay curve
   chess.com's own accuracy score uses.
-- **Promotion handling** - recognizes and clicks the site's live promotion picker automatically.
-- **Modern dark theme** with a bundled Roboto Medium font and dockable panels (Controls, Tracked
-  Board + engine info, Log).
 
 ## Running ChessAssist
 
